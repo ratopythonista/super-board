@@ -37,6 +37,11 @@ Concurrency uses positive `max_workers`, otherwise `max(1, min(16, cpus - 2))`.
 Pre-flight/classification and truth-check run inline; there are no Claude sub-agents.
 Each lane emits `{status,column,detail}`; the wave returns the same `cards` summary
 as the workflow, so reconcile, manifest, board/comments and throttle steps stay the same.
+When a lane moves the card and then dies without a usable result, the wave reads the
+card's real Status once through `super-board-card.sh` and reports `failed` with that
+column and the move (`board moved Ready → QA`), keeping the lane's printed detail.
+An unreadable board read halts the wave and names the column unread: the summary
+never echoes the column the card held at lane start.
 Review is allowed only with explicit `--codex`; merges still use the unchanged
 merge gate with `--expect-head <reviewed-SHA>` and verify landing per `run.md`.
 Concurrent reviews share that gate's merge mutex. Network and repo/git-dir writes

@@ -13,9 +13,16 @@ printf 'export default function () {}\n' > "$T/repo/.omp/extensions/super-board-
 export SUPER_BOARD_SKILLS_HOME="$T/home"
 cat > "$T/bin/gh" <<'PYGH'
 #!/usr/bin/env python3
-import json,sys
+import json,os,sys
 args=sys.argv[1:]
-if args[:2]==['issue','view']:
+if args[:2]==['api','graphql']:
+    if os.environ.get('SB_OMP_TEST_BOARD_FAIL'):
+        sys.exit('gh fixture: board read failed')
+    status=os.environ.get('SB_OMP_TEST_BOARD','Ready')
+    print(json.dumps({'data':{'repository':{'issueOrPullRequest':{'projectItems':{'nodes':[
+        {'id':'ITEM1','project':{'number':7,'owner':{'login':'fixture'}},
+         'fieldValueByName':{'name':status}}]}}}}}))
+elif args[:2]==['issue','view']:
     print(json.dumps({'labels':[]} if args[args.index('--json')+1] == 'labels' else {'number':int(args[2]),'title':'fixture','body':''}))
 else:
     sys.exit('unexpected gh fixture call: '+str(args))
@@ -23,6 +30,7 @@ PYGH
 chmod +x "$T/bin/gh"
 export SB_OMP_TEST_LOG="$T/calls.jsonl"
 export PATH="$T/bin:$PATH"
+export SB_GITHUB_RETRY_DELAY=0
 cp "$KIT/tests/fixtures/fake_omp.py" "$T/bin/omp"
 chmod +x "$T/bin/omp"
 cd "$T/repo"
@@ -188,6 +196,30 @@ printf 'PID=999999999\nLANE=review\n' > .claude/super-board/inflight/1
 wave --omp >"$T/out"
 jq -e '.cards[0].finalStatus == "advanced"' "$T/out" >/dev/null || fail 'stale lock must be reclaimed'
 [ ! -e .claude/super-board/inflight/1 ] || fail 'reclaimed lock must be removed'
+
+# A lane that moves the card and then dies without a usable result reports the
+# board's column and the move, never the column the card held at lane start.
+jq '.project = {"owner":"fixture","number":7} | .repo = {"remote":"fixture/fixture"}' "$T/config.json" > "$T/board-config.json"
+wave_board() { bash "$KIT/scripts/super-board-lane-wave.sh" --backend omp --config "$T/board-config.json" --cards "$CARDS" --omp=pinned-model 2>"$T/stderr"; }
+CARDS='[{"number":1,"status":"Ready"}]'
+: > "$SB_OMP_TEST_LOG"
+RC=0; SB_OMP_TEST_INVALID=1 SB_OMP_TEST_BOARD=QA wave_board >"$T/out" || RC=$?
+[ "$RC" -eq 0 ] || fail "a dead lane fails its card, not the wave (got $RC)"
+jq -e '.halted == false and .cards[0].finalStatus == "failed" and .cards[0].column == "QA"' "$T/out" >/dev/null \
+  || fail 'a failed lane must report the board column, not the entry column'
+jq -e '.cards[0].detail | contains("no valid result (exit 1)") and contains("lane printed failed: OMP returned no valid lane result") and contains("board moved Ready → QA")' "$T/out" >/dev/null \
+  || fail 'the detail must keep the lane failure and name the board move'
+
+RC=0; SB_OMP_TEST_INVALID=1 SB_OMP_TEST_BOARD=Ready wave_board >"$T/out" || RC=$?
+[ "$RC" -eq 0 ] && jq -e '.cards[0].column == "Ready" and (.cards[0].detail | contains("board at Ready"))' "$T/out" >/dev/null \
+  || fail 'an unmoved card must report the board column without a fake move'
+
+# Without a readable board the wave halts and keeps the entry column, named as unread.
+RC=0; SB_OMP_TEST_INVALID=1 SB_OMP_TEST_BOARD_FAIL=1 wave_board >"$T/out" || RC=$?
+[ "$RC" -eq 79 ] && jq -e '.halted and .cards[0].finalStatus == "halted" and .cards[0].column == "Ready"' "$T/out" >/dev/null \
+  || fail 'an unreadable board column must halt and keep the entry column'
+jq -e '.cards[0].detail | contains("board column unread")' "$T/out" >/dev/null || fail 'the unread board must be named'
+rm -f .claude/super-board/github-halt.json
 
 # Two cards in parallel under max_workers=2.
 jq '.max_workers = 2' "$T/config.json" > "$T/config3.json"

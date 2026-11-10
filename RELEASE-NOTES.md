@@ -24,6 +24,11 @@ OMP becomes a first-class host and lane backend (ADR-0031, #94).
   not inherit `--tools`). The lane fails closed when the extension is missing.
 - 🐛 In-flight locks are checked and stale PIDs reclaimed before a wave spawns; a live lock
   halts that card instead of racing it.
+- 🐛 **A dead lane reports the board's column.** When a lane moves the card and then ends
+  without a usable result, `super-board-lane-wave.sh` reads the card's real Status once through
+  `super-board-card.sh`, reports `failed` with that column and the move (`board moved Ready → QA`)
+  and keeps the lane's printed detail. An unreadable board read halts the wave and names the
+  column unread, so the summary never echoes the entry column (#97).
 - 🐛 **The size gate counts product lines.** `merge_policy.auto_max_lines` (400) now ignores
   `docs/**`, so the QA evidence the Tester must commit to the branch (logs and screenshots under
   `docs/super-board/runs/issue-<N>-qa-v*/`) no longer sends a small product PR to the human gate

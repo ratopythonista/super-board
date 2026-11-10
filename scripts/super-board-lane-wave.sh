@@ -309,6 +309,31 @@ def live_lock(lock):
     except PermissionError:
         return True
 
+card_helper = launcher.with_name('super-board-card.sh')
+
+def board_column(number):
+    """(column, reason, halted) for a card whose lane result the wave cannot trust.
+
+    The lane's own column is the entry column once the lane is gone, so the board
+    has to witness it. Halt 79 stops this run too: the read helper saved its reason.
+    """
+    if not card_helper.exists():
+        return None, 'board helper missing', False
+    try:
+        completed = subprocess.run(['bash', str(card_helper), '--config', str(config_path),
+                                    'status', str(number)],
+                                   capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError) as error:
+        return None, str(error), False
+    column = completed.stdout.strip()
+    if completed.returncode == 0 and column:
+        return column, None, False
+    if completed.returncode == 79:
+        return None, 'GitHub reads halted', True
+    reason = next((line.strip() for line in reversed(completed.stderr.splitlines()) if line.strip()),
+                  f'board helper exited {completed.returncode}')
+    return None, reason, False
+
 def run_card(card):
     complexity, stop = grade(card)
     if stop:
@@ -366,17 +391,34 @@ def run_card(card):
             if process.returncode in (9, 10):
                 preserve_lock = True
                 (readiness_halted if process.returncode == 9 else skills_halted).set()
+            parsed = None
             try:
-                result = json.loads(stdout)
-                if (not isinstance(result, dict) or result.get('status') not in
+                parsed = json.loads(stdout)
+                if (not isinstance(parsed, dict) or parsed.get('status') not in
                     ['advanced', 'bounced', 'blocked', 'human-gate', 'failed', 'halted']
-                    or not all(isinstance(result.get(key), str) for key in ['column', 'detail'])):
+                    or not all(isinstance(parsed.get(key), str) for key in ['column', 'detail'])):
                     raise ValueError('invalid lane result')
-                if process.returncode and result['status'] != 'halted':
+                if process.returncode and parsed['status'] != 'halted':
                     raise ValueError(f'lane exited {process.returncode}')
+                result = parsed
             except (ValueError, TypeError):
-                result = dict(status='halted' if process.returncode in (9, 10, 79) or halted.is_set() else 'failed',
-                              column=current['status'], detail=f'{lane} lane returned no valid result (exit {process.returncode})')
+                # A lane that moved the card and then died leaves no usable result;
+                # its own column would be the entry column, so read the board and
+                # keep the failure explicit instead of reporting a stale column.
+                board, unread, read_halted = board_column(card['number'])
+                detail = f'{lane} lane returned no valid result (exit {process.returncode})'
+                if isinstance(parsed, dict) and all(isinstance(parsed.get(key), str) for key in ['status', 'detail']):
+                    detail += f'; lane printed {parsed["status"]}: {parsed["detail"]}'
+                if board and board != current['status']:
+                    detail += f'; board moved {current["status"]} → {board}'
+                elif board:
+                    detail += f'; board at {board}'
+                else:
+                    detail += f'; board column unread: {unread}'
+                if read_halted:
+                    halted.set()
+                result = dict(status='halted' if read_halted or process.returncode in (9, 10, 79) or halted.is_set() else 'failed',
+                              column=board or current['status'], detail=detail)
             with mutex:
                 if result['status'] == 'halted':
                     halted.set()
