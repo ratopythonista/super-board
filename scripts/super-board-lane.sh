@@ -135,7 +135,7 @@ class Omp:
                 raise ValueError(f'omp.modelRoles.{role} must be a non-empty string or string array')
             lines.append('  ' + role + ': ' + json.dumps(', '.join(value)))
         lines.append('retry:')
-        lines.append('  fallbackChains:')
+        lines.append('  fallbackChains:' + ('' if chains else ' {}'))
         for role, value in chains.items():
             if not isinstance(role, str) or not self.ROLE.fullmatch(role):
                 raise ValueError(f'invalid omp.retry.fallbackChains role: {role!r}')

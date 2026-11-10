@@ -175,7 +175,7 @@ def omp_overlay(config):
                 or not all(isinstance(x, str) and x.strip() and '\n' not in x for x in value)):
             raise ValueError(f'omp.modelRoles.{role} must be a non-empty string or string array')
         lines.append('  ' + role + ': ' + json.dumps(', '.join(value)))
-    lines += ['retry:', '  fallbackChains:']
+    lines += ['retry:', '  fallbackChains:' + ('' if chains else ' {}')]
     for role, value in chains.items():
         if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]*', str(role)):
             raise ValueError(f'invalid omp.retry.fallbackChains role: {role!r}')
