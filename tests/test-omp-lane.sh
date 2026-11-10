@@ -55,6 +55,19 @@ wave() { bash "$KIT/scripts/super-board-omp-wave.sh" --config "$T/config.json" -
 fail() { echo "FAIL: $*" >&2; cat "$T/stderr" >&2; exit 1; }
 last() { tail -1 "$SB_OMP_TEST_LOG"; }
 count() { wc -l < "$SB_OMP_TEST_LOG" | tr -d ' '; }
+# Parse the recorded overlay as YAML: fallback chains must nest under retry.fallbackChains.
+overlay_chains() { # expected fallbackChains JSON, label
+  python3 - "$T/overlay.yml" "$1" "$2" <<'PY'
+import json, sys, yaml
+with open(sys.argv[1]) as stream:
+    doc = yaml.safe_load(stream)
+want, where = json.loads(sys.argv[2]), sys.argv[3]
+retry = doc.get('retry')
+got = retry.get('fallbackChains') if isinstance(retry, dict) else None
+if got != want:
+    sys.exit(f'{where}: retry.fallbackChains is {got!r}, want {want!r}')
+PY
+}
 
 # Review needs the explicit --omp flag; nothing launches before that refusal.
 RC=0; lane review >"$T/out" || RC=$?
@@ -70,8 +83,15 @@ grep -q -- '--no-extensions' "$SB_OMP_TEST_LOG" || fail 'user extensions must be
 grep -q -- '-e' "$SB_OMP_TEST_LOG" || fail 'the guard extension must be explicit'
 last | jq -e '.config | contains("modelRoles:") and contains("hard: \"fake/hard\"") and contains("review: []")' >/dev/null \
   || fail 'the overlay carries modelRoles and retry fallback chains'
+last | jq -r '.config' > "$T/overlay.yml"
+overlay_chains '{"easy":["fake/easy-2"],"review":[],"task":[]}' 'lane overlay'
 last | jq -r '.args | map(tostring) | join(" ")' | grep -q -- '--max-cost 0.75 --max-time 30m' || fail 'review caps must be passed'
 last | jq -r '.args | map(tostring) | join(" ")' | grep -q -- '--session-dir' || fail 'sessions need a private dir'
+# No configured chains still parse as an object, never null.
+jq 'del(.omp.retry)' "$T/config.json" > "$T/config-no-retry.json"
+bash "$KIT/scripts/super-board-omp-lane.sh" --config "$T/config-no-retry.json" --card "$CARD" --lane review --omp >"$T/out"
+last | jq -r '.config' > "$T/overlay.yml"
+overlay_chains '{}' 'lane overlay without chains'
 
 # The second entry point is the same backend.
 : > "$SB_OMP_TEST_LOG"
@@ -143,6 +163,8 @@ jq -s -e '
   ([.[] | select(.number == 1 and .lane != "grade")][0].model == "@easy") and
   ([.[] | select(.number == 2)][0].model == "@review")
 ' "$SB_OMP_TEST_LOG" >/dev/null || fail 'wave must grade with @classify and route roles'
+jq -sr 'map(select(.config != null)) | .[0].config' "$SB_OMP_TEST_LOG" > "$T/overlay.yml"
+overlay_chains '{"easy":["fake/easy-2"],"review":[],"task":[]}' 'wave overlay'
 [ ! -e .claude/super-board/omp-wave.pid ] && [ -z "$(ls -A .claude/super-board/inflight)" ] || fail 'completed wave leaves no PID/worker locks'
 
 # A pinned model skips the router and wins every lane.

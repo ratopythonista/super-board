@@ -142,7 +142,7 @@ class Omp:
                 raise ValueError(f'invalid omp.retry.fallbackChains role: {role!r}')
             if not isinstance(value, list) or not all(isinstance(x, str) and x.strip() for x in value):
                 raise ValueError(f'omp.retry.fallbackChains.{role} must be a string array')
-            lines.append('  ' + role + ': [' + ', '.join(json.dumps(x) for x in value) + ']')
+            lines.append('    ' + role + ': [' + ', '.join(json.dumps(x) for x in value) + ']')
         return '\n'.join(lines) + '\n'
 
     def guard_extension(self, root):

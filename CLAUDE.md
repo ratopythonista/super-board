@@ -93,7 +93,7 @@ every project it is installed in.
 
 ## Release checks
 
-Run `bash tests/run-safety.sh` for the offline suite. A pushed `v*` tag runs the same checks
+Run `bash tests/run-safety.sh` for the offline suite (it needs PyYAML: `python3 -m pip install pyyaml`). A pushed `v*` tag runs the same checks
 on Linux/macOS plus status-reader smoke checks, then publishes only if they pass. Follow
 [RELEASING.md](RELEASING.md); it also lists the settings needed to limit manual bypass.
 
