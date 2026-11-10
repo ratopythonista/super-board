@@ -24,7 +24,7 @@ plant_decoys() { for d in decoy-one decoy-two decoy-three; do mkdir -p "$1/.clau
 decoys_intact() { [ "$(ls "$1/.claude/skills" | grep -c '^decoy')" -eq 3 ]; }
 
 # A Codex shell would add .codex/ links by detection; keep the default layout predictable.
-unset CODEX_THREAD_ID CODEX_SESSION_ID SUPER_BOARD_HOST
+unset CODEX_THREAD_ID CODEX_SESSION_ID SUPER_BOARD_HOST OMPCODE PI_CODING_AGENT_DIR OMP_PROFILE
 
 SKILLS="super-board super-build super-qa super-review"
 ALL_SKILLS="$SKILLS super-collect ui-refine-loop visual git-sync pr-security-review"
@@ -169,13 +169,15 @@ rm -rf "$T"
 T=$(mktemp -d)
 "$INSTALL" "$T" >/dev/null 2>&1
 for s in super-board-run.sh super-board-stop.sh super-board-wave-plan.sh \
-         super-board-lane.sh super-board-codex-lane.sh super-board-codex-wave.sh super-board-card.sh super-board-throttle.sh super-board-host.sh \
+         super-board-lane.sh super-board-lane-wave.sh super-board-codex-lane.sh super-board-codex-wave.sh \
+         super-board-omp-lane.sh super-board-omp-wave.sh super-board-card.sh super-board-throttle.sh super-board-host.sh \
          super-board-deps.sh super-board-preflight.sh super-board-merge-gate.sh super-board-usage.sh super-board-pr-body.sh \
          super-review-file-refactor.sh super-qa-file-bug.sh; do
   [ -x "$T/.claude/bin/$s" ] || fail "$s was not installed, or is not executable"
 done
 # The Codex shim runs the shared launcher installed beside it.
 [ -x "$T/.agents/bin/super-board-lane.sh" ] && [ -e "$T/.agents/bin/super-board-codex-lane.sh" ] || fail "super-board-lane.sh must sit next to its codex shim in .agents/bin"
+[ -e "$T/.agents/bin/super-board-omp-lane.sh" ] && [ -e "$T/.agents/bin/super-board-lane-wave.sh" ] || fail "OMP shims must sit in .agents/bin"
 rm -rf "$T"
 
 # 6 — guard hooks: scripts copied, settings merged into an existing file without
@@ -311,19 +313,20 @@ resolves "$T" claude
 [ -L "$T/.claude/skills/super-board" ] || fail "fresh: .claude/skills/super-board should be a link"
 [ "$(readlink "$T/.claude/skills/super-board")" = "../../.agents/skills/super-board" ] || fail "fresh: links must be relative, got $(readlink "$T/.claude/skills/super-board")"
 [ "$T/.claude/hooks/guard-secrets.py" -ef "$T/.agents/hooks/guard-secrets.py" ] || fail "fresh: hooks should resolve to .agents/hooks"
-[ ! -e "$T/.codex" ] && [ ! -e "$T/.opencode" ] || fail "fresh: no host was asked for, yet .codex/ or .opencode/ appeared"
+[ ! -e "$T/.codex" ] && [ ! -e "$T/.opencode" ] && [ ! -e "$T/.omp" ] || fail "fresh: no host was asked for, yet a host folder appeared"
 echo "$OUT" | grep -q "✓ skills, scripts and workflows → .agents/ (linked from .claude)" || fail "fresh: grouped line should name .agents/ and the hosts, got: $OUT"
 rm -rf "$T"
 
 # 14 — --hosts adds hosts (claude is always kept); both flag forms; unknown names refused.
 T=$(mktemp -d)
-"$INSTALL" --no-hooks --hosts codex,opencode "$T" >/dev/null 2>&1 || fail "--hosts codex,opencode failed"
-for h in claude codex opencode; do resolves "$T" "$h"; done
+"$INSTALL" --no-hooks --hosts codex,opencode,omp "$T" >/dev/null 2>&1 || fail "--hosts codex,opencode,omp failed"
+for h in claude codex opencode omp; do resolves "$T" "$h"; done
+[ "$T/.omp/extensions/super-board-guards.ts" -ef "$T/.agents/extensions/super-board-guards.ts" ] || fail "omp: guard extension should resolve to .agents/extensions"
 rm -rf "$T"
 T=$(mktemp -d)
 "$INSTALL" --no-hooks --hosts=opencode "$T" >/dev/null 2>&1 || fail "--hosts=opencode failed"
 resolves "$T" opencode; resolves "$T" claude
-[ ! -e "$T/.codex" ] || fail "--hosts=opencode must not create .codex/"
+[ ! -e "$T/.codex" ] && [ ! -e "$T/.omp" ] || fail "--hosts=opencode must not create .codex/ or .omp/"
 rm -rf "$T"
 T=$(mktemp -d)
 if OUT=$("$INSTALL" --hosts claude,cursor "$T" 2>&1); then fail "an unknown host should be refused"; fi
@@ -340,8 +343,16 @@ T=$(mktemp -d); mkdir -p "$T/.claude/super-board/configs"
 echo '{"host": "opencode"}' > "$T/.claude/super-board/configs/app.json"
 "$INSTALL" --no-hooks "$T" >/dev/null 2>&1; resolves "$T" opencode
 rm -rf "$T"
+T=$(mktemp -d); mkdir -p "$T/.claude/super-board/configs"
+echo '{"host": "omp"}' > "$T/.claude/super-board/configs/app.json"
+"$INSTALL" --no-hooks "$T" >/dev/null 2>&1; resolves "$T" omp
+[ -e "$T/.omp/extensions/super-board-guards.ts" ] || fail "config host omp must install the guard extension"
+rm -rf "$T"
 T=$(mktemp -d)
 CODEX_THREAD_ID=t1 "$INSTALL" --no-hooks "$T" >/dev/null 2>&1; resolves "$T" codex
+rm -rf "$T"
+T=$(mktemp -d)
+OMPCODE=1 "$INSTALL" --no-hooks "$T" >/dev/null 2>&1; resolves "$T" omp
 rm -rf "$T"
 
 # 16 — upgrade a real-directory .claude/ install: every path it had still resolves, super-board's
@@ -380,9 +391,9 @@ for d, dirs, files in sorted(os.walk(root)):
 PY
 }
 T=$(mktemp -d)
-"$INSTALL" --hosts codex "$T" >/dev/null 2>&1
+"$INSTALL" --hosts codex,omp "$T" >/dev/null 2>&1
 BEFORE=$(snapshot "$T")
-"$INSTALL" --hosts codex "$T" >/dev/null 2>&1
+"$INSTALL" --hosts codex,omp "$T" >/dev/null 2>&1
 [ "$(snapshot "$T")" = "$BEFORE" ] || fail "a second install changed the tree: $(diff <(echo "$BEFORE") <(snapshot "$T"))"
 rm -rf "$T"
 

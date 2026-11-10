@@ -11,7 +11,7 @@ if [ -z "${SB_LANE_ENTRY:-}" ]; then
   T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
   for args in "" "--backend gemini" "--backend claude" "--backend=gemini" "--backend"; do
     RC=0; bash "$KIT/scripts/super-board-lane.sh" $args --config x --card '{}' --lane build >/dev/null 2>"$T/err" || RC=$?
-    [ "$RC" -eq 64 ] && grep -q 'valid backends: codex' "$T/err" || { echo "FAIL: '$args' must exit 64 naming the valid backends (rc=$RC)" >&2; cat "$T/err" >&2; exit 1; }
+    [ "$RC" -eq 64 ] && grep -q 'valid backends: codex, omp' "$T/err" || { echo "FAIL: '$args' must exit 64 naming the valid backends (rc=$RC)" >&2; cat "$T/err" >&2; exit 1; }
   done
   grep -q '^exec .*super-board-lane.sh" --backend codex "\$@"$' "$KIT/scripts/super-board-codex-lane.sh" || { echo 'FAIL: codex-lane must be a one-line shim' >&2; exit 1; }
   echo 'PASS: test-codex-lane.sh (shim + --backend codex; backend refusal)'

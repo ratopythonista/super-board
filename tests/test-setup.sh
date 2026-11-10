@@ -305,7 +305,7 @@ echo "$OUT" | q '.status_backup == null and .restored == 0 and .added_columns !=
 # 13 — config `host`: check accepts claude / codex / opencode, flags anything else, and
 #      fix never overwrites a host that is already set.
 H="$WORK/bare/.claude/super-board/configs"; mkdir -p "$H"
-for h in claude codex opencode; do
+for h in claude codex opencode omp; do
   printf '{"host":"%s"}' "$h" > "$H/b.json"
   OUT=$(python3 "$SETUP" check --root "$WORK/bare" || true)
   echo "$OUT" | q '.host_errors == {}' || fail "host $h must be accepted: $OUT"
@@ -319,7 +319,7 @@ echo "$TXT" | grep -q "✗ .*b.json.*gemini" || fail "text report must name the 
 python3 "$SETUP" fix --root "$WORK/bare" --no-helpers >/dev/null || true
 q '.host == "gemini"' "$H/b.json" || fail "fix must not guess over a set host: $(cat "$H/b.json")"
 # A non-Claude host keeps merge_policy.default unset (merges by hand, #47); claude gets "auto".
-for h in codex opencode; do
+for h in codex opencode omp; do
   printf '{"host":"%s"}' "$h" > "$H/b.json"
   python3 "$SETUP" fix --root "$WORK/bare" --no-helpers >/dev/null || true
   q '.columns != null and (.merge_policy.default // null) == null' "$H/b.json" || fail "fix must migrate but not turn auto-merge on for host $h: $(cat "$H/b.json")"

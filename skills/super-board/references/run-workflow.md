@@ -27,7 +27,7 @@ Say so once, in the first wave report: `🔁 codex host — running as --codex`.
 
 **Unknown host halts.** Run the host check before preconditions. Exit 65 (no host sign) or
 `opencode` (no OpenCode backend yet) halts before any claim, even with no Workflow tool, with one line:
-`⛔ unknown host — set SUPER_BOARD_HOST=claude|codex and re-run`. Never guess a backend.
+`⛔ unknown host — set SUPER_BOARD_HOST=claude|codex|omp and re-run`. Never guess a backend.
 
 After the same plan and claim steps, launch this command as a background task:
 `bash .claude/bin/super-board-codex-wave.sh --config <config-path> --cards <claimed-cards.json> --codex[=<model>] --tier <low|medium|high> --output <wave-result.json>`.
@@ -41,6 +41,38 @@ Review is allowed only with explicit `--codex`; merges still use the unchanged
 merge gate with `--expect-head <reviewed-SHA>` and verify landing per `run.md`.
 Concurrent reviews share that gate's merge mutex. Network and repo/git-dir writes
 use the lane launcher's sandbox settings, including an external submodule git dir.
+
+## OMP runs
+
+`/super-board run --omp` uses headless OMP for every lane of every wave, overriding
+`worker_backend`. `--omp --low` / `--omp --high` pick the OMP ladder the same way
+the Claude tier flags do; a cheap `@classify` router grades Ready cards, and the
+lane launcher maps tier × grade to `@easy`/`@medium`/`@hard` (`@review` for Review,
+`@task` for the truth-check subagents). `--omp=<model|@role>`, else optional
+`omp.model`, pins one value for every card and skips the router.
+The roles resolve in the board's `omp.modelRoles` overlay.
+
+**Inside OMP, plain `run` is `--omp`.** `bash .claude/bin/super-board-host.sh --config
+<config-path>` prints `omp` (OMP sets `OMPCODE=1` and `CLAUDECODE=1`; the OMP sign wins) →
+run as `--omp`; tiers and `--omp=<model>` still apply and this counts as the explicit
+opt-in, Review included. Say so once: `🔁 omp host — running as --omp`.
+
+After the same plan and claim steps, launch as a background task:
+`bash .claude/bin/super-board-omp-wave.sh --config <config-path> --cards <claimed-cards.json> --omp[=<model>] --tier <low|medium|high> --output <wave-result.json>`
+(or `super-board-lane-wave.sh --backend omp ...`). The helper starts one
+`super-board-lane.sh --backend omp` per card/lane, cards in parallel, the same
+Build → QA → Review chain, `max_workers` and `{cards,halted}` contract as Codex.
+Review is allowed only with explicit `--omp`; merges still use the unchanged gate.
+
+Each OMP lane gets `--tools read,bash,edit,write,grep,glob,web_search` (plus `task`
+for Review), `--max-time`/`--max-cost` from `omp.limits.<lane>`, `--no-extensions`
+and an explicit `-e .omp/extensions/super-board-guards.ts`. The extension runs the
+six Python hooks and narrows `task` subagents to `read,bash,grep,glob` (a child
+session does not inherit `--tools`). A lane writes its result to a private temp
+file named in the prompt; the wrapper validates the same schema and falls back to
+the last assistant message of the NDJSON stream. Exit 3 is `halted`/`cost-cap`, a
+deadline is `halted`/`time-cap`; both preserve card, claim, worktree and PR.
+The wave marker is `.claude/super-board/omp-wave.pid`.
 
 ## Required GitHub evidence and a paused run
 
@@ -57,7 +89,7 @@ run. Check the helper's `--check` before claims, board/comment writes, each new
 lane/wave, and all migration/merge steps. The marker is shared through the main
 checkout's `.claude/super-board/github-halt.json`, including linked worktrees (a
 submodule keeps it in its own git dir: `<git-common-dir>/super-board/`).
-Cancel active workflow agents using local workflow controls (Codex: stop the background wave task); do not launch more
+Cancel active workflow agents using local workflow controls (Codex or OMP: stop the background wave task); do not launch more
 lanes. Already-running agents stop at their next checkpoint; this is not an
 instantaneous process-wide kill. Preserve worktrees, claims, card statuses, and
 approval evidence. Do not move cards to Done/Blocked or release claims using an
@@ -100,24 +132,28 @@ Run the same preconditions as `run.md` §Preconditions, minus PID checks:
    `.claude/workflows/super-board-wave.js` (catches a broken script before
    burning tokens):
    `{ echo '(async function(){'; sed 's/^export const meta/const meta/' .claude/workflows/super-board-wave.js; echo '})'; } | node --check --input-type=module`
-   With `--codex`, instead require `codex` on PATH and `bash -n` on both Codex launcher scripts.
+   With `--codex`, instead require `codex` on PATH and `bash -n` on the Codex launcher+wrapper.
+   With `--omp`, require `omp` on PATH, `.omp/extensions/super-board-guards.ts`, and
+   `bash -n` on the OMP launcher+wrapper.
 5. Wave marker FIRST, then the legacy check (lock-before-look closes the
    TOCTOU window where both backends pass each other's checks at once):
    a. Atomically create `.claude/super-board/inflight/workflow-wave.lock`
       (mkdir -p the directory) containing the config slug and start time:
       `(set -C; printf 'SLUG=%s\nSTARTED=%s\n' <slug> "$(date -u +%FT%TZ)" > <lock>)`.
       Before replacing an existing marker, check `/workflows` and verify the PID
-      in `.claude/super-board/codex-wave.pid` (plain numeric PID) with `kill -0` plus its process command.
-      Only if neither backend has an active wave and no repo-local Codex lane
+      in `.claude/super-board/codex-wave.pid` or `.claude/super-board/omp-wave.pid`
+      (plain numeric PID) with `kill -0` plus its process command.
+      Only if neither backend has an active wave and no repo-local Codex/OMP lane
       remains is the marker stale from a crashed run — replace it.
       Remove the lock when the run ends or stops. The legacy dispatcher
       refuses to start (and halts mid-run) while it exists.
    b. THEN verify no legacy run is active: BOTH
       `pgrep -f 'super-board-run.sh'` (the legacy dispatcher idles between
       dispatches with zero workers alive) and
-      `pgrep -f 'claude -p .*super-board run'` are empty, AND `/workflows`
-      shows no running super-board-wave, AND no `super-board-codex-wave.sh` or
-      `super-board-codex-lane.sh` process belongs to this repo. If a legacy run is detected,
+      `pgrep -f 'claude -p .*super-board run'` and `pgrep -f 'omp -p .*super-board'`
+      are empty, AND `/workflows` shows no running super-board-wave, AND no
+      `super-board-lane-wave.sh`, `super-board-codex-*` or
+      `super-board-omp-*` process belongs to this repo. If a legacy run is detected,
       remove the lock just created and stop — the legacy run won.
 6. Crash-recovery sweep (the workflow backend's equivalent of the legacy
    reaper): with no wave running, strip `bot_identity` from any
@@ -142,7 +178,7 @@ Repeat until a done condition or halt gate fires:
    quota: `gh api repos/<o>/<r>/issues/<n>/comments -f body=…` for a comment,
    `gh api -X DELETE repos/<o>/<r>/issues/<n>/assignees -f 'assignees[]=<bot>'`
    to release a claim. Board moves have no REST route; they wait for the reset.
-   **Usage guard** (Claude waves only; skip for `--codex`, explicit or host-switched) — `bash .claude/bin/super-board-usage.sh check --config <config-path>`
+   **Usage guard** (Claude waves only; skip for `--codex`/`--omp`, explicit or host-switched) — `bash .claude/bin/super-board-usage.sh check --config <config-path>`
    (Claude 5-hour and weekly plan usage; threshold `usage_pause_pct`, default 95):
    - exit 0 → launch.
    - exit 10 with `usage_fallback: "codex"` → resolve the selected remaining
@@ -247,7 +283,8 @@ Repeat until a done condition or halt gate fires:
    there is no cross-session claim at all, so never run two orchestrators
    (or /loop re-entries) against the same board without bot_identity.
 4. **Launch** — With `--codex`, or no Workflow tool, or the host check printing `codex`, use
-   "Codex runs" above. The host check printing `claude` uses the Workflow tool; exit 65 or
+   "Codex runs" above. With `--omp`, or the host check printing `omp`, use "OMP runs" above.
+   The host check printing `claude` uses the Workflow tool; exit 65 or
    `opencode` never reaches Launch (see "Unknown host halts"). Workflow tool with
    `scriptPath: .claude/workflows/super-board-wave.js` and
    `args: { configPath, cards, humanApprovesMerge, tier }` (`cards` hydrated after the planner: each
@@ -343,8 +380,11 @@ don't stall on prompts:
     "Bash(python3 .claude/bin/super-board-skills-ready.py:*)",
     "Bash(bash .claude/bin/super-board-usage.sh:*)",
     "Bash(bash .claude/bin/super-board-throttle.sh:*)",
+    "Bash(bash .claude/bin/super-board-lane-wave.sh:*)",
     "Bash(bash .claude/bin/super-board-codex-lane.sh:*)",
     "Bash(bash .claude/bin/super-board-codex-wave.sh:*)",
+    "Bash(bash .claude/bin/super-board-omp-lane.sh:*)",
+    "Bash(bash .claude/bin/super-board-omp-wave.sh:*)",
     "Bash(bash .claude/bin/super-board-host.sh:*)",
     "Bash(bash .claude/bin/super-board-pr-body.sh:*)", "Bash(gh pr edit:*)",
     "Bash(bash .claude/bin/super-board-stop.sh:*)",

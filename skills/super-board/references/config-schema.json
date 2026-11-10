@@ -31,11 +31,11 @@
   // only; the dispatcher refuses to run (exit 78) unless set here.
   "worker_backend": "workflow",
 
-  // Agent host this project runs on: "claude" | "codex" | "opencode". Separate from
+  // Agent host this project runs on: "claude" | "codex" | "opencode" | "omp". Separate from
   // worker_backend. Onboard and setup's fix ALWAYS write it (setup fills a missing key
   // from --host and never replaces a set one); setup's check flags any other value.
   // `super-board-host.sh --config <this file>` uses it only when SUPER_BOARD_HOST and
-  // every env sign (Codex ids, OPENCODE, CLAUDECODE) are absent. See docs/hosts.md.
+  // every env sign (OMP, Codex ids, OPENCODE, CLAUDECODE) are absent. See docs/hosts.md.
   "host": "claude",
 
   // Optional post-completion adapter; never bundles or installs the external skill.
@@ -66,6 +66,41 @@
     // Codex ladder. `--codex=<model>` wins; absent/null lets the ladder pick
     // (run tier x card grade, see scripts/super-board-codex-lane.sh).
     "model": null
+  },
+
+  // Optional OMP lane settings. Used by explicit `run --omp`; never selects the
+  // host by itself. `model` pins every lane (including Review, which still needs
+  // the explicit flag); otherwise the ladder picks @easy/@medium/@hard and
+  // Review always uses @review. modelRoles values are arrays of selectors: OMP
+  // takes the first available, retry.fallbackChains covers request failures
+  // ([] = fail closed). limits are per lane and become --max-cost/--max-time.
+  // See docs/hosts.md and ADR-0031.
+  "omp": {
+    "model": null,
+    "modelRoles": {
+      "classify": ["opencode-go/claude-haiku-5-5:low", "opencode-go/gpt-6-luna:low"],
+      "easy":     ["opencode-go/deepseek-v4.1-flash:low", "opencode-go/gpt-6-luna:low"],
+      "medium":   ["opencode-go/deepseek-v4.1-flash:high", "opencode-go/gpt-6-luna:medium"],
+      "hard":     ["opencode-go/deepseek-v4.1-flash:max", "opencode-go/gpt-6-luna:max"],
+      "review":   ["opencode-go/deepseek-v4.1-flash:max"],
+      "task":     ["opencode-go/deepseek-v4.1-flash:max"]
+    },
+    "retry": {
+      "fallbackChains": {
+        "classify": ["opencode-go/gpt-6-luna:low"],
+        "easy":     ["opencode-go/gpt-6-luna:low"],
+        "medium":   ["opencode-go/gpt-6-luna:medium"],
+        "hard":     ["opencode-go/gpt-6-luna:max"],
+        "review":   [],
+        "task":     []
+      }
+    },
+    "limits": {
+      "classify": {"max_cost": 0.05, "max_time": "3m"},
+      "build":    {"max_cost": 0.50, "max_time": "30m"},
+      "qa":       {"max_cost": 0.30, "max_time": "20m"},
+      "review":   {"max_cost": 0.75, "max_time": "30m"}
+    }
   },
 
   "target": {
@@ -130,7 +165,7 @@
   "merge_policy": {
     // "auto" (default on host "claude" or with no host key): normal changes
     // merge on a clean review.
-    // Non-Claude default: when `host` is "codex" or "opencode" (any value but
+    // Non-Claude default: when `host` is "codex", "opencode" or "omp" (any value but
     // "claude") and this key is absent, every PR waits for a human (gate exits 7,
     // "host <x>: auto-merge not turned on"). Set "auto" explicitly to merge there.
     // "human": every PR requires human approval (gate exits 7 → Blocked).
@@ -305,7 +340,7 @@
   // planner picks every Ready card whose `## Blocked by` issues have all closed,
   // plus whatever is already in flight. The workflow runtime caps CONCURRENT
   // agents at min(16, cpus-2) and queues the rest, so a 19-card wave is normal.
-  // Codex waves also cap concurrent cards at a positive max_workers; absent/0
+  // Codex and OMP waves also cap concurrent cards at a positive max_workers; absent/0
   // uses max(1, min(16, cpus-2)), with each card's lanes running sequentially.
   //
   // Set it only to deliberately throttle a machine. A fixed cap used to do the

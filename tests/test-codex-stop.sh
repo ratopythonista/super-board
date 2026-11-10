@@ -61,4 +61,25 @@ rc=0
 [ "$rc" -eq 1 ] || { echo 'FAIL: reused PID not refused'; exit 1; }
 [ ! -s "$STOP_TRACE" ] || { echo 'FAIL: reused PID released claims'; exit 1; }
 [ -f "$TMP/.claude/super-board/inflight/13" ] || { echo 'FAIL: reused PID removed worker lock'; exit 1; }
-echo 'PASS: test-codex-stop.sh (stop order, control markers, reused PID)'
+# The same stop path understands the OMP wave marker.
+printf '#!/usr/bin/env bash\necho "python3 - /kit/scripts/super-board-lane-wave.sh"\n' > "$TMP/bin/ps"
+python3 - "$TMP" <<'PY' &
+import os, pathlib, signal, sys, time
+root = pathlib.Path(sys.argv[1])
+def stop(*_):
+    sys.exit(0)
+signal.signal(signal.SIGTERM, stop)
+(root / '.claude/super-board/omp-wave.pid').write_text(str(os.getpid()) + '\n')
+while True:
+    time.sleep(.05)
+PY
+wave_pid=$!
+for attempt in {1..100}; do
+  [ -f "$TMP/.claude/super-board/omp-wave.pid" ] && break
+  sleep .02
+done
+(cd "$TMP" && PATH="$TMP/bin:$PATH" bash "$ROOT/scripts/super-board-stop.sh" test > stop.log)
+wait "$wave_pid" 2>/dev/null || true
+wave_pid=""
+[ ! -e "$TMP/.claude/super-board/omp-wave.pid" ] || { echo 'FAIL: OMP marker retained'; exit 1; }
+echo 'PASS: test-codex-stop.sh (stop order, control markers, reused PID, OMP marker)'

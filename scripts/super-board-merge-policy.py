@@ -23,7 +23,7 @@ unreadable metadata, so the gate fails safe to "human".
 
 Rules, from references/config-schema.json → merge_policy / migrations:
 - merge_policy.default "human" → everything waits for a human.
-- config `host` other than "claude" (codex, opencode) with merge_policy.default
+- config `host` other than "claude" (codex, opencode, omp) with merge_policy.default
   unset → everything waits for a human; an explicit "auto" merges as usual.
   Read from config only (no host detection). No `host` key → the Claude
   default ("auto"), so configs written before the key existed do not change.

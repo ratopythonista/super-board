@@ -300,7 +300,7 @@ teardown
 # 15d — a non-Claude host (config `host` only) merges by hand unless
 #       merge_policy.default is "auto"; claude, no host and an explicit auto merge.
 head_setup
-for h in codex opencode; do
+for h in codex opencode omp; do
   cfgset ".host = \"$h\" | del(.merge_policy)"
   RC=0; OUT=$(STUB_OID="$SHA" STUB_META="$(meta "" src/x.ts)" gate --expect-head "$SHA" 2>/dev/null) || RC=$?
   [ "$RC" -eq 7 ] || fail "host $h with no merge_policy.default should exit 7, got $RC"

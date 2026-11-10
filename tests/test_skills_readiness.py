@@ -21,7 +21,9 @@ class Readiness(unittest.TestCase):
         self.card = dict(number=1, status='Ready', labels=['feature'], body='')
 
     def put(self, name, host='claude', root=None, text='skill instructions'):
-        path = (root or self.root) / ('.claude/skills' if host == 'claude' else '.agents/skills') / name / 'SKILL.md'
+        surface = ('.claude/skills' if host == 'claude' else
+                   '.omp/skills' if host == 'omp' else '.agents/skills')
+        path = (root or self.root) / surface / name / 'SKILL.md'
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text)
         return path
@@ -76,6 +78,22 @@ class Readiness(unittest.TestCase):
             (directory / name).symlink_to(self.root / '.claude/skills' / name, target_is_directory=True)
         result = self.run_cli(host='codex')
         self.assertTrue(all(Path(e['resolved_path']).is_file() for e in result['entries'] if e['status'] == 'resolved'))
+
+    def test_omp_reads_all_three_project_surfaces(self):
+        self.full()
+        self.put('code-review', host='codex')  # .agents
+        (self.root / '.claude/skills/code-review/SKILL.md').unlink()
+        self.put('verification-before-completion', host='omp')  # .omp
+        (self.root / '.claude/skills/verification-before-completion/SKILL.md').unlink()
+        result = self.run_cli(host='omp')
+        self.assertTrue(result['ready'])
+        code_review = next(e for e in result['entries'] if e['name'] == 'mattpocock-skills:code-review')
+        verification = next(e for e in result['entries'] if e['name'] == 'verification-before-completion')
+        self.assertEqual(Path(code_review['resolved_path']).parent.parent, (self.root / '.agents/skills').resolve())
+        self.assertEqual(Path(verification['resolved_path']).parent.parent, (self.root / '.omp/skills').resolve())
+        (self.root / '.claude/skills/pr-security-review/SKILL.md').unlink()
+        missing = [e for e in self.run_cli(host='omp', expected=10)['entries'] if e['status'] == 'missing']
+        self.assertEqual(['pr-security-review'], [e['name'] for e in missing])
 
     def test_empty_unreadable_broken_and_directory_are_missing(self):
         self.full()

@@ -1,7 +1,7 @@
 # Skill readiness before dispatch
 
 Run `python3 .claude/bin/super-board-skills-ready.py --root <project> --host
-<claude|codex> --cards <cards.json>` before any claims or wave writes. The cards
+<claude|codex|omp> --cards <cards.json>` before any claims or wave writes. The cards
 array carries number, status, labels and literal issue body; hydrate absent
 bodies read-only with the guarded GitHub reader (`--hydrate` does this).
 For a worker boundary add `--lane build|qa|review`. Before using a conditional
@@ -22,9 +22,11 @@ Setup uses `--profile setup` for the eight core skills and unconditional union;
 a selected chain can be runnable while the setup union is incomplete.
 
 Claude sees project/user `.claude/skills` and enabled, scoped plugin records.
-Codex sees `.agents/skills` from the current directory through its owning Git
-root, user/active Codex roots, and
-authoritative catalog entries. Its core `.claude` direct reads are supported;
+OMP sees the three project surfaces `.agents/skills` (canonical), `.claude/skills`
+and `.omp/skills`, plus the matching user roots (`~/.agents/skills`,
+`~/.claude/skills`, `~/.omp/agent/skills`, `~/.omp/skills`), and authoritative
+catalog entries. Codex sees `.agents/skills` from the current directory through
+its owning Git root, user/active Codex roots, and authoritative catalog entries. Its core `.claude` direct reads are supported;
 helper files in `.claude` alone are not Codex availability. Symlinks are valid
 when their target is a readable, nonempty regular `SKILL.md`. A lockfile,
 cache directory or another host's install is not evidence.

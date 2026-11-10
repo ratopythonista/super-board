@@ -63,7 +63,7 @@ Two security skills come with every install, and they stay separate:
 `--no-helper-skills` skips the `security-audit` download; `/super-board onboard` adds it later.
 Claude Code's built-in `/security-review` is left as it is.
 
-Running from Codex or OpenCode? See [supported hosts](docs/hosts.md) for tested versions, sign-in and gaps.
+Running from Codex, OpenCode or OMP? See [supported hosts](docs/hosts.md) for tested versions, sign-in and gaps.
 
 Optional post-run learning can delegate an already installed `calibrate` skill after
 verified selected work completes. It applies only to explicitly permitted existing
@@ -142,7 +142,7 @@ Each name links to that skill's README. Adding a skill? Write its `SKILL.md` and
 /git-sync                     # commit, pull, push
 ```
 
-Flags: `run --low|--high` · `run --codex[=<model>]` · `super-collect --since 30d`
+Flags: `run --low|--high` · `run --codex[=<model>]` · `run --omp[=<model|@role>]` · `super-collect --since 30d`
 
 ## Guards & hooks
 
@@ -161,7 +161,7 @@ Run automatically once installed. Python stdlib, JSON in, JSON out.
 
 ## Models
 
-A cheap router grades each card easy, medium or hard first; the run flag picks the model for each grade. With `--codex`, every lane runs on Codex GPT models instead of Claude.
+A cheap router grades each card easy, medium or hard first; the run flag picks the model for each grade. With `--codex`, every lane runs on Codex GPT models instead of Claude; with `--omp`, lanes resolve OMP model roles from `omp.modelRoles` (Review always `@review`, truth-check `@task`).
 
 | Command | Router | Easy card | Medium card | Hard card |
 | --- | --- | --- | --- | --- |
@@ -171,12 +171,17 @@ A cheap router grades each card easy, medium or hard first; the run flag picks t
 | `/super-board run --codex` | gpt-6-luna | gpt-6.1-sol | gpt-6.1-sol | gpt-6-astra |
 | `/super-board run --codex --low` | gpt-6-luna | gpt-6-luna | gpt-6.1-sol | gpt-6.1-sol |
 | `/super-board run --codex --high` | gpt-6-luna | gpt-6-astra | gpt-6-astra | gpt-6-astra |
+| `/super-board run --omp` | `@classify` | `@medium` | `@hard` | `@hard` |
+| `/super-board run --omp --low` | `@classify` | `@easy` | `@medium` | `@hard` |
+| `/super-board run --omp --high` | `@medium` | `@hard` | `@hard` | `@hard` |
 
-`/super-board run --codex=<model>` pins one model for every card and skips the router.
+`/super-board run --codex=<model>` pins one model for every card and skips the router;
+`--omp=<model|@role>` pins one role or model for every card (Review included).
 
 Run inside Codex? plain `/super-board run` switches to the Codex ladder by itself. Codex has no
 `/super-board` command: it finds skills in `.agents/skills/` (symlinks followed), so link
-`.claude/skills/super-board` there and type `$super-board run`.
+`.claude/skills/super-board` there and type `$super-board run`. OMP finds the same skill in
+`.agents/skills`, `.claude/skills` or `.omp/skills`; plain `run` there becomes `--omp`.
 
 ## Writing standard
 
@@ -216,7 +221,7 @@ MIT © Eric Tech ([LICENSE](LICENSE)). Built on [obra/superpowers](https://githu
 ### Worker skill availability
 
 Setup and dispatch resolve real, nonempty `SKILL.md` files for the actual
-Claude or Codex host. Missing required skills halt before claims or workers;
+Claude, Codex or OMP host. Missing required skills halt before claims or workers;
 lockfiles and arbitrary plugin caches do not count. The shared registry in
 `scripts/super-board-skills-ready.py` owns lane dependencies, overrides and the
 two declared ponytail fallbacks. The QA lane requires the bundled
@@ -228,7 +233,7 @@ repair rechecks files after installation.
 The CLI accepts `--home <fixture-home>` and `--catalog <active-skills.json>`.
 Launchers accept the same inventory through `SUPER_BOARD_SKILLS_HOME` and
 `SUPER_BOARD_SKILLS_CATALOG`; neither changes the actual host. Catalog shape:
-`{"host":"codex","skills":[{"name":"vendor:skill","path":"/exact/SKILL.md",
+`{"host":"codex|omp","skills":[{"name":"vendor:skill","path":"/exact/SKILL.md",
 "enabled":true,"scope":"project","project_root":"/exact/project"}]}`.
 User entries use `scope:"user"`. Restart explicitly after repairing missing
 skills; readiness certifies availability, not their content or external tools.

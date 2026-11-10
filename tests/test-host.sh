@@ -12,9 +12,15 @@ host() { env -i PATH="$PATH" "$@" bash "$S"; }
 [ "$(host CODEX_THREAD_ID=01a1)" = codex ] || fail 'CODEX_THREAD_ID means codex'
 [ "$(host CODEX_SESSION_ID=01a1)" = codex ] || fail 'CODEX_SESSION_ID means codex'
 [ "$(host CODEX_THREAD_ID=01a1 CLAUDECODE=1)" = codex ] || fail 'a Codex lane under Claude is codex'
+[ "$(host OMPCODE=1)" = omp ] || fail 'OMPCODE means omp'
+[ "$(host OMPCODE=1 CLAUDECODE=1)" = omp ] || fail 'OMP under Claude is omp'
+[ "$(host PI_CODING_AGENT_DIR=/x)" = omp ] || fail 'PI_CODING_AGENT_DIR means omp'
+[ "$(host OMP_PROFILE=work)" = omp ] || fail 'OMP_PROFILE means omp'
+[ "$(host OMPCODE=1 CODEX_THREAD_ID=01a1)" = omp ] || fail 'the OMP sign beats a leaked Codex id'
 [ "$(host SUPER_BOARD_HOST=codex)" = codex ] || fail 'override forces codex'
 [ "$(host SUPER_BOARD_HOST=claude CODEX_THREAD_ID=01a1)" = claude ] || fail 'override beats the env'
 [ "$(host SUPER_BOARD_HOST=opencode)" = opencode ] || fail 'override accepts opencode'
+[ "$(host SUPER_BOARD_HOST=omp)" = omp ] || fail 'override accepts omp'
 rc=0; host SUPER_BOARD_HOST=gemini >/dev/null 2>&1 || rc=$?
 [ "$rc" = 64 ] || fail "bad override exits 64, got $rc"
 
@@ -30,6 +36,7 @@ nohost() {
 nohost
 nohost CODEX_HOME=/x CODEX_SANDBOX=seatbelt   # not host signs
 nohost CODEX_THREAD_ID= CLAUDECODE=            # empty values are not signs
+nohost OMPCODE= PI_CODING_AGENT_DIR= OMP_PROFILE=  # empty values are not signs
 nohost AGENT=1                                 # OpenCode sets it, but so do other tools
 
 # OpenCode v2.0.22 exports OPENCODE=1. It wins over a CLAUDECODE leaked from a parent Claude
@@ -38,14 +45,17 @@ nohost AGENT=1                                 # OpenCode sets it, but so do oth
 [ "$(host OPENCODE=1 CLAUDECODE=1)" = opencode ] || fail 'OpenCode under a Claude parent is opencode'
 [ "$(host SUPER_BOARD_HOST=claude OPENCODE=1)" = claude ] || fail 'override beats the OpenCode sign'
 [ "$(host CODEX_THREAD_ID=01a1 OPENCODE=1)" = codex ] || fail 'a Codex id beats the OpenCode sign'
+[ "$(host OMP_PROFILE=work OPENCODE=1)" = omp ] || fail 'the OMP sign beats OpenCode'
 
 # Config `host` (top-level key): used only when no override and no env sign is present.
 T=$(mktemp -d); trap 'rm -f "$ERR"; rm -rf "$T"' EXIT
 printf '{"host":"codex"}' > "$T/codex.json"
+printf '{"host":"omp"}' > "$T/omp.json"
 printf '{"worker_backend":"workflow"}' > "$T/none.json"
 printf '{"host":"gemini"}' > "$T/bad.json"
 cfg() { local f=$1; shift; env -i PATH="$PATH" "$@" bash "$S" --config "$f"; }
 [ "$(cfg "$T/codex.json")" = codex ] || fail 'config host codex prints codex'
+[ "$(cfg "$T/omp.json")" = omp ] || fail 'config host omp prints omp'
 [ "$(cfg "$T/codex.json" CLAUDECODE=1)" = claude ] || fail 'an env sign beats config host'
 [ "$(cfg "$T/codex.json" SUPER_BOARD_HOST=opencode)" = opencode ] || fail 'override beats config host'
 for f in none missing; do

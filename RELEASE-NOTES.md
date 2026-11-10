@@ -1,5 +1,32 @@
 # Release notes
 
+## v3.4.0 — 2026-11-10
+
+OMP becomes a first-class host and lane backend (ADR-0031, #94).
+
+- ✨ **Host `omp`.** `super-board-host.sh` answers `omp` for `OMPCODE`, `PI_CODING_AGENT_DIR`
+  or `OMP_PROFILE`, checked before the `CLAUDECODE=1` OMP also exports. `SUPER_BOARD_HOST`
+  and config `host` accept it; `install.sh --hosts omp` links `.omp/{skills,bin,workflows,hooks}`
+  and `.omp/extensions/super-board-guards.ts`.
+- ✨ **Skills readiness for OMP.** `super-board-skills-ready.py --host omp` searches the three
+  project surfaces (`.agents/skills`, `.claude/skills`, `.omp/skills`) and their user roots.
+- ✨ **Lane backend `Omp`.** `super-board-lane.sh --backend omp` (wrapper
+  `super-board-omp-lane.sh`) runs `omp -p --mode json` with the lane allowlist,
+  `--max-time`/`--max-cost` from `omp.limits`, a per-run `modelRoles` overlay, the guard
+  extension, and the same result schema/`conforms()` as Codex. Review always resolves
+  `@review` and still requires explicit `--omp`; `--omp=<model|@role>` pins every lane.
+- ✨ **Generic wave.** `super-board-lane-wave.sh --backend codex|omp` owns the shared
+  ThreadPoolExecutor, router, halt codes and merge mutex. `super-board-codex-wave.sh` and
+  `super-board-omp-wave.sh` are wrappers; markers are `<backend>-wave.pid`, and `stop`
+  understands both waves plus `omp -p` orphan workers.
+- ✨ **Guard extension.** `.omp/extensions/super-board-guards.ts` maps `tool_call`/`tool_result`
+  to the six Python hooks and narrows `task` subagents to `read,bash,grep,glob` (children do
+  not inherit `--tools`). The lane fails closed when the extension is missing.
+- 🐛 In-flight locks are checked and stale PIDs reclaimed before a wave spawns; a live lock
+  halts that card instead of racing it.
+- 🧪 `test-codex-lane.sh` covers the generalized launcher; new `test-omp-lane.sh`,
+  `test-omp-guards.sh` and host/skills/setup cases cover OMP.
+
 ## v3.3.0 — 2026-10-27
 
 The security check moves to QA, and `/super-collect` hands its findings to Matt Pocock's planning chain.
