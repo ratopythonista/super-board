@@ -62,6 +62,7 @@ rc=0
 [ ! -s "$STOP_TRACE" ] || { echo 'FAIL: reused PID released claims'; exit 1; }
 [ -f "$TMP/.claude/super-board/inflight/13" ] || { echo 'FAIL: reused PID removed worker lock'; exit 1; }
 # The same stop path understands the OMP wave marker.
+rm -f "$TMP/.claude/super-board/codex-wave.pid"   # the reused-PID case above still names this shell
 printf '#!/usr/bin/env bash\necho "python3 - /kit/scripts/super-board-lane-wave.sh"\n' > "$TMP/bin/ps"
 python3 - "$TMP" <<'PY' &
 import os, pathlib, signal, sys, time
