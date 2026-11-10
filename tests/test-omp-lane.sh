@@ -96,7 +96,7 @@ high medium @hard
 high high @hard
 CELLS
 lane build --omp >"$T/out"
-[ "$(last | jq -r '.model')" = '@medium' ] || fail 'ungraded default card takes @medium'
+[ "$(last | jq -r '.model')" = '@hard' ] || fail 'ungraded default card takes the medium cell (@hard)'
 lane review --omp --tier low >"$T/out"
 [ "$(last | jq -r '.model')" = '@review' ] || fail 'review ignores the ladder'
 lane review --omp=@easy >"$T/out"

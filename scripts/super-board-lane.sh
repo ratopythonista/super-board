@@ -89,7 +89,8 @@ class Omp:
         return self.TOOLS + (['task'] if run.get('lane') == 'review' else [])
 
     def default_model(self, args):
-        return '@review' if args.lane == 'review' else '@medium'
+        # No --tier and no complexity is the medium run tier's medium cell.
+        return '@review' if args.lane == 'review' else '@hard'
 
     def limits(self, config, lane):
         block = config.get('omp') or {}
@@ -343,6 +344,7 @@ if backend.name == 'omp':
     adaptation = f'''OMP adaptation: this is a headless `omp -p` lane process. Never launch Claude subagents. Use the native `task` tool only for Review's truth-check: two read-only adversarial passes (code-grounder and historian), with the Tester's evidence and the raw diff; every other duty runs inline. The guard extension narrows each subagent to read/bash/grep/glob.
 Claim protocol: claim before work with `gh issue edit {card['number']} --add-assignee @me`; then `gh issue view {card['number']} --json assignees` must list exactly {identity}. A different assignee means another worker owns the card: return status=halted and preserve everything. Release only after the lane's final checklist passes.
 Worktree: create your own at `.claude/worktrees/issue-{card['number']}-{args.lane}` and work only there; never edit the main checkout.
+Merge vs nit: a finding is open only when the current diff, PR body or QA evidence still contains it. A historical comment that cites an older line, already corrected in the artifact, is `no longer applies`; note it and merge. A finding still present in the current artifact bounces, whatever the comment's age.
 Evidence: read `$SUPER_BOARD_LANE_MODEL_FILE` (JSON role/provider/model/thinking written by the guard extension at session start) and use that resolved pair in the PR history line as `@role · provider/model:thinking · <sha>`.
 Final lane result: write the JSON object (no prose) to {output_path} and also make it your last message.'''
 else:

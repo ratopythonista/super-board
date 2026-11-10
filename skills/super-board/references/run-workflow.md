@@ -72,6 +72,9 @@ session does not inherit `--tools`). A lane writes its result to a private temp
 file named in the prompt; the wrapper validates the same schema and falls back to
 the last assistant message of the NDJSON stream. Exit 3 is `halted`/`cost-cap`, a
 deadline is `halted`/`time-cap`; both preserve card, claim, worktree and PR.
+A finding is open only when the current diff, PR body or QA evidence still contains it.
+A historical comment citing a line the artifact already corrected is `no longer applies`
+(note it, merge); a finding still present in the artifact bounces, whatever the comment's age.
 The wave marker is `.claude/super-board/omp-wave.pid`.
 
 ## Required GitHub evidence and a paused run
