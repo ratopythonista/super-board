@@ -24,6 +24,10 @@ OMP becomes a first-class host and lane backend (ADR-0031, #94).
   not inherit `--tools`). The lane fails closed when the extension is missing.
 - 🐛 In-flight locks are checked and stale PIDs reclaimed before a wave spawns; a live lock
   halts that card instead of racing it.
+- 🐛 **The size gate counts product lines.** `merge_policy.auto_max_lines` (400) now ignores
+  `docs/**`, so the QA evidence the Tester must commit to the branch (logs and screenshots under
+  `docs/super-board/runs/issue-<N>-qa-v*/`) no longer sends a small product PR to the human gate
+  (#96). `size_exclude` still replaces the whole default list.
 - 🧪 `test-codex-lane.sh` covers the generalized launcher; new `test-omp-lane.sh`,
   `test-omp-guards.sh` and host/skills/setup cases cover OMP.
 

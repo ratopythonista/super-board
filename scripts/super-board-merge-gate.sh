@@ -76,8 +76,9 @@
 #   6  the PR head is not the commit that was reviewed — review evidence is void,
 #      the card goes back to Review (not Blocked, not a rebase pass)
 #   7  merge policy says a human merges this one (money / auth / destructive
-#      schema, a diff over auto_max_lines — default 400, "big PR — please
-#      review" — or merge_policy.default "human"). Stdout lists each
+#      schema, a diff over auto_max_lines in PRODUCT lines — default 400,
+#      "big PR — please review"; docs/** and the other size_exclude globs do not
+#      count — or merge_policy.default "human"). Stdout lists each
 #      `human-gate: <category> — <evidence>`. Nothing ran, nothing merged; the
 #      card → Blocked with the 🙋 template: the human reviews and merges it, or
 #      comments "done" after its pinned request to approve — the next wave re-runs

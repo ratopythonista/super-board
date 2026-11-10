@@ -27,12 +27,15 @@ Rules, from references/config-schema.json → merge_policy / migrations:
   unset → everything waits for a human; an explicit "auto" merges as usual.
   Read from config only (no host detection). No `host` key → the Claude
   default ("auto"), so configs written before the key existed do not change.
-- merge_policy.auto_max_lines (default 400; 0 = no cap): changed lines
+- merge_policy.auto_max_lines (default 400; 0 = no cap): PRODUCT changed lines
   (additions + deletions) above it → human ("big PR — please review"). Files
   matching merge_policy.size_exclude (default: lockfiles, generated output,
-  snapshots) and migration files (migrations.globs) do not count; migration
-  lines are reported separately. Per-file counts come from `files[].additions/
-  deletions`; without them the PR totals are used.
+  snapshots, and documentation/QA evidence under docs/) and migration files
+  (migrations.globs) do not count; migration lines are reported separately.
+  The cap asks a human to review product risk, so QA evidence — logs and
+  screenshots the Tester commits to the issue branch so the comment images
+  render — must not spend it (#96). Per-file counts come from
+  `files[].additions/deletions`; without them the PR totals are used.
 - merge_policy.always_human.<category>: any label, path glob or added-line
   keyword match → human. Categories ship as money, auth, schema; setting
   always_human replaces them all (`{}` turns category gating off).
@@ -84,6 +87,12 @@ DEFAULT_SIZE_EXCLUDE = [
     "**/*.min.js", "**/*.min.css", "**/*.map", "**/*.pb.go", "**/*_pb2.py",
     # snapshots
     "**/__snapshots__/**", "**/*.snap",
+    # documentation and QA evidence: the Tester commits screenshots and logs to
+    # docs/super-board/runs/issue-<N>-qa-v*/ so the issue/PR comment images
+    # render from the branch. That is proof to read, not product risk to review,
+    # and counting it sent a 142-line product PR to a human gate at 1280 lines
+    # (#96). A user who wants docs counted sets size_exclude to a list without it.
+    "**/docs/**",
 ]
 
 

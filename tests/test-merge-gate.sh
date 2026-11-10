@@ -348,6 +348,24 @@ RC=0; STUB_OID="$SHA" STUB_META="$BIG" gate --expect-head "$SHA" >/dev/null 2>&1
 [ "$RC" -eq 7 ] || fail "size_exclude [] should count the lockfile and exit 7, got $RC"
 teardown
 
+# 15e — QA evidence and docs do not count toward the cap: the shape of PR #11
+#       (1278 added lines, 1136 of them logs under docs/super-board/runs/)
+#       merges on its 142 product lines; an explicit size_exclude [] counts the
+#       docs and gates again.
+head_setup
+EVIDENCE=$(jq -cn '{labels: [], body: "", additions: 1278, deletions: 2, files: [
+  {path: "docs/super-board/runs/issue-5-qa-v2/mut1.log", additions: 1136, deletions: 0},
+  {path: "src/domain/roundRobin.test.ts", additions: 94, deletions: 0},
+  {path: "src/domain/roundRobin.ts", additions: 41, deletions: 0},
+  {path: "src/domain/types.ts", additions: 7, deletions: 2}], changedFiles: 4}')
+RC=0; STUB_OID="$SHA" STUB_META="$EVIDENCE" gate --expect-head "$SHA" >/dev/null 2>&1 || RC=$?
+[ "$RC" -eq 0 ] || fail "qa evidence under docs/ must not count toward auto_max_lines, got $RC"
+cfgset '.merge_policy = {size_exclude: []}'
+RC=0; OUT=$(STUB_OID="$SHA" STUB_META="$EVIDENCE" gate --expect-head "$SHA" 2>/dev/null) || RC=$?
+[ "$RC" -eq 7 ] || fail "size_exclude [] must count the docs evidence and gate, got $RC"
+echo "$OUT" | grep -q "human-gate: size" || fail "the docs overage must name size, got: $OUT"
+teardown
+
 # 16 — a destructive keyword counts in an ADDED line only. Deleting a DROP TABLE
 #      is not adding one.
 head_setup

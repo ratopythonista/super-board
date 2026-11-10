@@ -172,12 +172,14 @@
     // A human can merge it or approve the pinned request for the next wave.
     // Onboard recommends "human" when base_branch is production-detected.
     "default": "auto",
-    // Small PRs by design. A PR with more changed lines (additions +
+    // Small PRs by design. A PR with more changed PRODUCT lines (additions +
     // deletions) than this waits for a human: Blocked 🙋 "big PR — please
-    // review". Default 400; 0 = no size cap. Files matching size_exclude and
-    // migration files (migrations.globs) do not count; migration lines are
-    // reported separately. Builders keep PRs under this cap and lint flags
-    // tickets likely to exceed it (references/lint.md → "Too big").
+    // review". Default 400; 0 = no size cap. Files matching size_exclude,
+    // documentation and QA evidence under docs/ (the Tester commits screenshots
+    // and logs there so the comment images render) and migration files
+    // (migrations.globs) do not count; migration lines are reported separately.
+    // Builders keep PRs under this cap and lint flags tickets likely to exceed
+    // it (references/lint.md → "Too big").
     "auto_max_lines": 400,
     // Globs left out of the size count. Setting this replaces the defaults
     // below; [] counts every file.
@@ -187,7 +189,9 @@
       "**/Gemfile.lock", "**/composer.lock", "**/go.sum", "**/Podfile.lock", "**/pubspec.lock",
       "**/generated/**", "**/__generated__/**", "**/*.generated.*", "**/*.gen.*",
       "**/*.min.js", "**/*.min.css", "**/*.map", "**/*.pb.go", "**/*_pb2.py",
-      "**/__snapshots__/**", "**/*.snap"
+      "**/__snapshots__/**", "**/*.snap",
+      // documentation and QA evidence (docs/super-board/runs/issue-<N>-qa-v*/)
+      "**/docs/**"
     ],
     // ALWAYS human, whatever `default` says. A PR matching ANY label, path glob
     // or keyword (case-insensitive, searched in the diff's ADDED lines only) of

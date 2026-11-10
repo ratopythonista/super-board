@@ -146,8 +146,8 @@ is not.
 ## Criterion 15 — too big (small PRs by design)
 
 Small pull requests are a design goal: each ticket should land as one PR under the merge size cap
-(`merge_policy.auto_max_lines`, default 400 changed lines; lockfiles, generated files, snapshots and
-migration SQL do not count). A PR over the cap is never auto-merged — it parks in Blocked 🙋 as a
+(`merge_policy.auto_max_lines`, default 400 changed product lines; lockfiles, generated files, snapshots,
+documentation/QA evidence under `docs/` and migration SQL do not count). A PR over the cap is never auto-merged — it parks in Blocked 🙋 as a
 "big PR". Catching it at lint time is cheaper than splitting a finished branch.
 
 Flag a ticket as **too big** when either holds:
