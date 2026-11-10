@@ -299,7 +299,7 @@ def live_lock(lock):
         first = lock.read_text().strip().split('\n')[0]
         pid = int(first.split('=', 1)[1] if first.startswith('PID=') else first)
     except (OSError, ValueError, IndexError):
-        return False
+        return True   # unreadable lock: fail closed rather than race its owner
     try:
         os.kill(pid, 0)
         return True
