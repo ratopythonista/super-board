@@ -61,7 +61,7 @@ After the same plan and claim steps, launch as a background task:
 `bash .claude/bin/super-board-omp-wave.sh --config <config-path> --cards <claimed-cards.json> --omp[=<model>] --tier <low|medium|high> --output <wave-result.json>`
 (or `super-board-lane-wave.sh --backend omp ...`). The helper starts one
 `super-board-lane.sh --backend omp` per card/lane, cards in parallel, the same
-Build → QA → Review chain, `max_workers` and `{cards,halted}` contract as Codex.
+Build → QA → Review chain, `max_workers` (default 4) and `{cards,halted}` contract as Codex.
 Review is allowed only with explicit `--omp`; merges still use the unchanged gate.
 
 Each OMP lane gets `--tools read,bash,edit,write,grep,glob,web_search` (plus `task`

@@ -71,7 +71,7 @@ try:
     workers = config.get('max_workers', 0)
     if type(workers) is not int or workers < 0:
         raise ValueError('max_workers must be a non-negative integer')
-    workers = workers or max(1, min(16, (os.cpu_count() or 2) - 2))
+    workers = workers or (4 if backend == 'omp' else max(1, min(16, (os.cpu_count() or 2) - 2)))
     root = Path(subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()).resolve()
     configured = (config.get(backend) or {}).get('model')
     pinned = explicit[0].startswith(flag + '=') or (isinstance(configured, str) and configured.strip())

@@ -341,7 +341,8 @@
   // plus whatever is already in flight. The workflow runtime caps CONCURRENT
   // agents at min(16, cpus-2) and queues the rest, so a 19-card wave is normal.
   // Codex and OMP waves also cap concurrent cards at a positive max_workers; absent/0
-  // uses max(1, min(16, cpus-2)), with each card's lanes running sequentially.
+  // uses max(1, min(16, cpus-2)) for Codex and 4 for OMP, with each card's lanes
+  // running sequentially.
   //
   // Set it only to deliberately throttle a machine. A fixed cap used to do the
   // wave sizing, and it sized it badly: on a board where 23 of 32 Ready cards
