@@ -22,8 +22,14 @@ OMP becomes a first-class host and lane backend (ADR-0031, #94).
 - ✨ **Guard extension.** `.omp/extensions/super-board-guards.ts` maps `tool_call`/`tool_result`
   to the six Python hooks and narrows `task` subagents to `read,bash,grep,glob` (children do
   not inherit `--tools`). The lane fails closed when the extension is missing.
-- 🐛 In-flight locks are checked and stale PIDs reclaimed before a wave spawns; a live lock
-  halts that card instead of racing it.
+- ✨ **Lane evidence survives the run.** Every OMP lane appends
+  `{ts, card, lane, role, provider, model, thinking, cost, status}` to the run's
+  `lanes.jsonl` (beside `--output`, or under
+  `<paths.runs_dir>/<date>-<config>-<backend>/`), and the `@classify` grade writes the
+  same record with `complexity`. `cost` is the USD OMP recorded for the lane,
+  subagents included. The PR history line uses the resolved pair
+  (`@role · provider/model:thinking · <sha>`), so the model table per stage no longer
+  needs a manual probe (#103).
 - 🐛 **A dead lane reports the board's column.** When a lane moves the card and then ends
   without a usable result, `super-board-lane-wave.sh` reads the card's real Status once through
   `super-board-card.sh`, reports `failed` with that column and the move (`board moved Ready → QA`)

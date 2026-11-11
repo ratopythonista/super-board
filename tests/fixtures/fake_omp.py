@@ -30,11 +30,29 @@ def result_path(text):
     match = re.search(r'Write exactly .* to (\S+) and nothing else', text)
     return Path(match.group(1)) if match else None
 
+def write_evidence(model=None):
+    evidence = os.environ.get('SUPER_BOARD_LANE_MODEL_FILE')
+    if evidence:
+        Path(evidence).write_text(json.dumps(dict(role=model, provider='fake', model='fake-model',
+                                                  thinking='low', tools=[])))
+    sessions = flag('--session-dir')
+    if sessions:
+        session = Path(sessions)
+        session.mkdir(parents=True, exist_ok=True)
+        cost = float(os.environ.get('SB_OMP_TEST_COST', '0.125'))
+        auxiliary = float(os.environ.get('SB_OMP_TEST_AUX_COST', '0.005'))
+        with (session / 'fake-session.jsonl').open('w') as stream:
+            stream.write(json.dumps({'type': 'message', 'message': {'role': 'assistant',
+                                                                    'usage': {'cost': {'total': cost}}}}) + '\n')
+            stream.write(json.dumps({'type': 'model_usage', 'role': 'judge',
+                                     'usage': {'cost': {'total': auxiliary}}}) + '\n')
+
 if 'Grade complexity' in prompt:
     target = result_path(prompt)
     log(dict(args=args, prompt=prompt, number=int(re.search(r'issue #(\d+)', prompt).group(1)),
              lane='grade', active=1, model=flag('--model'), tools=flag('--tools'),
              config=Path(flag('--config')).read_text() if flag('--config') else None))
+    write_evidence(flag('--model'))
     if target:
         target.write_text(json.dumps(dict(complexity=os.environ.get('SB_OMP_TEST_GRADE', 'medium'))))
     sys.exit(int(os.environ.get('SB_OMP_TEST_GRADE_EXIT', '0')))
@@ -50,8 +68,7 @@ log(dict(args=args, prompt=prompt, number=card['number'], lane=lane, active=acti
                'SUPER_BOARD_LANE_MODEL_FILE', 'CLAUDE_PROJECT_DIR')}))
 evidence = os.environ.get('SUPER_BOARD_LANE_MODEL_FILE')
 if evidence:
-    Path(evidence).write_text(json.dumps(dict(role=flag('--model'), provider='fake', model='fake-model',
-                                              thinking='low', tools=(flag('--tools') or '').split(','))))
+    write_evidence(flag('--model'))
 if os.environ.get('SB_OMP_TEST_DELAY'):
     time.sleep(float(os.environ['SB_OMP_TEST_DELAY']))
 status = os.environ.get('SB_OMP_TEST_STATUS', 'advanced')

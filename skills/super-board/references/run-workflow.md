@@ -81,6 +81,12 @@ rejected payload is kept at
 `.claude/super-board/rejected/lane-result-rejected-<lane>-<card>.{json,txt}`, and
 the failure names that path plus every schema path that missed. Exit 3 is `halted`/`cost-cap`, a
 deadline is `halted`/`time-cap`; both preserve card, claim, worktree and PR.
+The run also writes `lanes.jsonl` beside `--output` (or under
+`<paths.runs_dir>/<date>-<config>-<backend>/`): one record per lane and one for the
+`@classify` grade, `{ts, card, lane, role, provider, model, thinking, cost, status}`.
+`cost` is the USD spent from OMP's session files, subagents included, and `role`/
+`provider`/`model`/`thinking` are the resolved pair, so the model table per stage
+comes from the run itself. `--evidence <file>` overrides the path for a single lane.
 A finding is open only when the current diff, PR body or QA evidence still contains it.
 A historical comment citing a line the artifact already corrected is `no longer applies`
 (note it, merge); a finding still present in the artifact bounces, whatever the comment's age.

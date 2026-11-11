@@ -88,6 +88,7 @@ jq -e '.status == "advanced" and .column == "Done"' "$T/out" >/dev/null || fail 
 [ "$(last | jq -r '.env.SUPER_BOARD_RUN')" = 1 ] || fail 'SUPER_BOARD_RUN must reach the worker'
 [ "$(last | jq -r '.env.CLAUDE_PROJECT_DIR')" = "$(pwd -P)" ] || fail 'CLAUDE_PROJECT_DIR must name the repo root'
 [ -n "$(last | jq -r '.env.SUPER_BOARD_LANE_MODEL_FILE')" ] || fail 'the model evidence file must be exported'
+last | jq -r '.prompt' | grep -q '@role · provider/model:thinking · <sha>' || fail 'the lane prompt must carry the PR history model contract'
 grep -q -- '--no-extensions' "$SB_OMP_TEST_LOG" || fail 'user extensions must be disabled'
 grep -q -- '-e' "$SB_OMP_TEST_LOG" || fail 'the guard extension must be explicit'
 last | jq -e '.config | contains("modelRoles:") and contains("hard: \"fake/hard\"") and contains("review: []")' >/dev/null \
@@ -101,6 +102,14 @@ jq 'del(.omp.retry)' "$T/config.json" > "$T/config-no-retry.json"
 bash "$KIT/scripts/super-board-omp-lane.sh" --config "$T/config-no-retry.json" --card "$CARD" --lane review --omp >"$T/out"
 last | jq -r '.config' > "$T/overlay.yml"
 overlay_chains '{}' 'lane overlay without chains'
+
+# Each lane appends {card, lane, role, provider, model, thinking, cost} to the run's lanes.jsonl.
+rm -f "$T/lanes.jsonl"
+lane build --omp --tier medium --complexity low --evidence "$T/lanes.jsonl" >"$T/out"
+jq -s -e 'length == 1 and .[0].card == 1 and .[0].lane == "build" and .[0].role == "medium"
+          and .[0].provider == "fake" and .[0].model == "fake-model" and .[0].thinking == "low"
+          and .[0].cost > 0.12 and .[0].cost < 0.14 and .[0].status == "advanced"' \
+  "$T/lanes.jsonl" >/dev/null || fail 'a lane must persist its resolved model and cost'
 
 # The second entry point is the same backend.
 : > "$SB_OMP_TEST_LOG"
@@ -179,8 +188,10 @@ RC=0; SB_OMP_TEST_INVALID=1 lane build --omp >"$T/out" || RC=$?
 [ "$RC" -eq 1 ] && jq -e '.status == "failed"' "$T/out" >/dev/null || fail 'invalid result fails closed'
 
 # Caps: cost exit 3 and a deadline both halt, preserving the card.
-RC=0; SB_OMP_TEST_EXIT=3 lane build --omp >"$T/out" || RC=$?
+rm -f "$T/lanes.jsonl"
+RC=0; SB_OMP_TEST_EXIT=3 lane build --omp --evidence "$T/lanes.jsonl" >"$T/out" || RC=$?
 [ "$RC" -eq 79 ] && jq -e '.status == "halted" and .detail == "cost-cap"' "$T/out" >/dev/null || fail 'cost cap halts'
+jq -s -e '.[0].status == "halted" and .[0].cost > 0.12' "$T/lanes.jsonl" >/dev/null || fail 'a halted lane must still persist model and cost'
 RC=0; SB_OMP_TEST_TIME=1 lane build --omp >"$T/out" || RC=$?
 [ "$RC" -eq 79 ] && jq -e '.status == "halted" and .detail == "time-cap"' "$T/out" >/dev/null || fail 'time cap halts'
 
@@ -208,6 +219,30 @@ jq -s -e '
 jq -sr 'map(select(.config != null)) | .[0].config' "$SB_OMP_TEST_LOG" > "$T/overlay.yml"
 overlay_chains '{"easy":["fake/easy-2"],"review":[],"task":[]}' 'wave overlay'
 [ ! -e .claude/super-board/omp-wave.pid ] && [ -z "$(ls -A .claude/super-board/inflight)" ] || fail 'completed wave leaves no PID/worker locks'
+DEFAULT_LANES="docs/super-board/runs/$(date +%F)-config-omp/lanes.jsonl"
+[ -s "$DEFAULT_LANES" ] || fail 'a wave without --output must persist lanes.jsonl under paths.runs_dir'
+jq -s -e 'all(.[]; has("card") and has("lane") and has("role") and has("cost"))' "$DEFAULT_LANES" >/dev/null \
+  || fail 'the default run directory must carry valid evidence records'
+
+# The wave writes one evidence file in the run directory: the @classify grade plus
+# every lane's resolved model and cost, so the model table needs no manual probe.
+rm -rf "$T/run"
+mkdir -p "$T/run"
+SB_OMP_TEST_GRADE=low wave --omp --tier low --output "$T/run/wave-result.json" >"$T/out"
+jq -s -e '
+  (map(select(.lane == "classify")) | length) == 1 and
+  (map(select(.lane == "classify"))[0].card == 1) and
+  (map(select(.lane == "classify"))[0].complexity == "low") and
+  (map(select(.lane == "classify"))[0].role == "classify") and
+  (map(select(.lane == "classify"))[0].provider == "fake") and
+  (map(select(.lane == "classify"))[0].model == "fake-model") and
+  (map(select(.lane == "build"))[0].role == "easy") and
+  (map(select(.lane == "qa"))[0].role == "easy") and
+  (map(select(.lane == "review"))[0].role == "review") and
+  all(.[]; has("card") and has("lane") and has("role") and has("provider")
+            and has("model") and has("thinking") and has("cost"))
+' "$T/run/lanes.jsonl" >/dev/null || fail 'the run must persist classify and lane model/cost evidence'
+[ -f "$T/run/wave-result.json" ] || fail 'the wave output stays in the run directory'
 
 # A pinned model skips the router and wins every lane.
 : > "$SB_OMP_TEST_LOG"
@@ -261,5 +296,8 @@ CARDS='[{"number":1,"status":"Review"},{"number":2,"status":"Review"}]'
 : > "$SB_OMP_TEST_LOG"
 SB_OMP_TEST_DELAY=1 bash "$KIT/scripts/super-board-omp-wave.sh" --config "$T/config3.json" --cards "$CARDS" --omp >"$T/out"
 jq -s -e 'map(.active) | max == 2' "$SB_OMP_TEST_LOG" >/dev/null || fail 'max_workers=2 must run cards together'
+PARALLEL_LANES="docs/super-board/runs/$(date +%F)-config3-omp/lanes.jsonl"
+jq -s -e 'length >= 2 and all(.[]; has("card") and has("lane") and has("cost"))' "$PARALLEL_LANES" >/dev/null \
+  || fail 'parallel lanes must append complete, parseable evidence records'
 
 echo 'PASS: test-omp-lane.sh (roles/ladders/review/allowlist/caps/extension/results/wave/locks)'

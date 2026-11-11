@@ -202,6 +202,9 @@ read it — re-read, then redo the edit. Builder opens the PR with every block f
 </details>
 <!-- /sb:history -->
 
+OMP lanes put the resolved pair first in Details: `@role · provider/model:thinking ·
+<sha>` read from `$SUPER_BOARD_LANE_MODEL_FILE` (ADR-0031).
+
 <!-- sb:risk -->
 ## Risk
 🟢 **Low** · <one line: what could break and what limits it>

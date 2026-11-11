@@ -25,6 +25,126 @@ import tempfile
 import threading
 import time
 
+def append_jsonl(path, record):
+    """Append one record atomically; grade and lane processes share the run's file."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    line = (json.dumps(record) + '\n').encode()
+    descriptor = os.open(path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o644)
+    try:
+        os.write(descriptor, line)
+    finally:
+        os.close(descriptor)
+
+def events(text):
+    for line in (text or '').splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(event, dict):
+            yield event
+
+def session_cost(directory):
+    """USD spent by the lane from OMP's session files, subagents included when
+    they share --session-dir. The files are the durable record; stdout is the
+    fallback for hosts that do not write one."""
+    total, seen = 0.0, False
+    try:
+        paths = list(Path(directory).rglob('*.jsonl'))
+    except OSError:
+        return None
+    for path in paths:
+        try:
+            stream = path.open()
+        except OSError:
+            continue
+        with stream:
+            for line in stream:
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(event, dict):
+                    continue
+                if event.get('type') == 'message':
+                    message = event.get('message') or {}
+                    if message.get('role') != 'assistant':
+                        continue
+                    value = ((message.get('usage') or {}).get('cost') or {}).get('total')
+                elif event.get('type') == 'model_usage':
+                    value = ((event.get('usage') or {}).get('cost') or {}).get('total')
+                else:
+                    continue
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    total += value
+                    seen = True
+    return round(total, 8) if seen else None
+
+def output_cost(text):
+    """USD from the NDJSON stream when no session file is available.
+
+    `agent_end.telemetry` already aggregates the messages, so it wins over the
+    per-message totals instead of being added to them."""
+    telemetry = None
+    messages_total, seen = 0.0, False
+    for event in events(text):
+        if event.get('type') == 'message_end':
+            message = event.get('message') or {}
+            value = ((message.get('usage') or {}).get('cost') or {}).get('total')
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                messages_total += value
+                seen = True
+        elif event.get('type') == 'agent_end':
+            value = (((event.get('telemetry') or {}).get('cost') or {}).get('estimatedUsd'))
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                telemetry = value if telemetry is None else telemetry + value
+    if telemetry is not None:
+        return round(telemetry, 8)
+    return round(messages_total, 8) if seen else None
+
+def resolved_identity(model_file, requested):
+    data = {}
+    if model_file:
+        try:
+            loaded = json.loads(Path(model_file).read_text())
+        except (OSError, ValueError):
+            loaded = None
+        if isinstance(loaded, dict):
+            data = loaded
+    role = data.get('role')
+    if isinstance(role, str) and role.strip():
+        role = role.strip().lstrip('@')
+    else:
+        role = requested[1:] if isinstance(requested, str) and requested.startswith('@') else None
+    provider = data.get('provider') if isinstance(data.get('provider'), str) else None
+    model = data.get('model') if isinstance(data.get('model'), str) else None
+    if model is None and isinstance(requested, str) and not requested.startswith('@'):
+        if '/' in requested:
+            provider = provider or requested.split('/', 1)[0]
+            model = requested.split('/', 1)[1]
+        else:
+            model = requested
+    thinking = data.get('thinking') if isinstance(data.get('thinking'), str) else None
+    return role, provider, model, thinking
+
+def grade_evidence(card, complexity, model_file, requested, stdout, session_dir):
+    cost = session_cost(session_dir)
+    if cost is None:
+        cost = output_cost(stdout)
+    role, provider, model, thinking = resolved_identity(model_file, requested)
+    return {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+            'card': card['number'], 'lane': 'classify', 'role': role, 'provider': provider,
+            'model': model, 'thinking': thinking, 'cost': cost,
+            'complexity': complexity}
+
+def default_run_dir(config, root, backend, config_path):
+    runs = Path(((config.get('paths') or {}).get('runs_dir') or 'docs/super-board/runs'))
+    if not runs.is_absolute():
+        runs = root / runs
+    day = time.strftime('%Y-%m-%d', time.localtime())
+    return runs / f'{day}-{config_path.stem}-{backend}'
+
 raw = sys.argv[2:]
 choice = None
 for index, arg in enumerate(raw):
@@ -77,6 +197,8 @@ try:
     pinned = explicit[0].startswith(flag + '=') or (isinstance(configured, str) and configured.strip())
 except (OSError, ValueError, subprocess.CalledProcessError) as error:
     parser.error(str(error))
+run_dir = output_path.parent if output_path else default_run_dir(config, root, backend, config_path)
+lanes_path = run_dir / 'lanes.jsonl'
 readiness = launcher.with_name('super-board-verification-ready.py')
 if subprocess.run([sys.executable, str(readiness), '--config', str(config_path)]).returncode:
     result = json.dumps({'cards': [dict(number=c['number'], finalStatus='halted', lastLane='none',
@@ -252,6 +374,8 @@ def grade(card):
     with tempfile.TemporaryDirectory(prefix=f'super-board-{backend}-grade-') as temporary:
         schema_path, output = Path(temporary) / 'schema.json', Path(temporary) / 'grade.json'
         schema_path.write_text(json.dumps(GRADE_SCHEMA))
+        session_dir = Path(temporary) / 'sessions'
+        model_file = Path(temporary) / 'model.json'
         environment = dict(os.environ, SUPER_BOARD_LANE_TOOLS=ROUTER_TOOLS,
                            SUPER_BOARD_SKIP_CLEANUP='1', CLAUDE_PROJECT_DIR=str(root))
         if backend == 'codex':
@@ -265,10 +389,11 @@ def grade(card):
             roles = Path(temporary) / 'roles.yml'
             roles.write_text(omp_overlay(config))
             prompt += f'\nWrite exactly {{"complexity":"low|medium|high"}} to {output} and nothing else.\n'
+            environment['SUPER_BOARD_LANE_MODEL_FILE'] = str(model_file)
             command = ['omp', '-p', '--mode', 'json', '--no-title', '--auto-approve', '--no-skills',
                        '--tools', ROUTER_TOOLS, '--config', str(roles), '--model', '@classify',
                        '--no-extensions', '-e', str(omp_extension()),
-                       '--session-dir', str(Path(temporary) / 'sessions')] + omp_limit(config, 'classify') + [prompt]
+                       '--session-dir', str(session_dir)] + omp_limit(config, 'classify') + [prompt]
             stdin, capture_stdout = None, True
         with mutex:
             if halted.is_set():
@@ -287,9 +412,16 @@ def grade(card):
         finally:
             with mutex:
                 active.discard(process)
+        complexity = read_grade(output, stdout)
+        try:
+            append_jsonl(lanes_path, grade_evidence(
+                card, complexity, model_file if backend == 'omp' else None,
+                '@classify' if backend == 'omp' else ROUTER_MODEL, stdout, session_dir))
+        except OSError:
+            pass   # evidence never blocks the grade
         if process.returncode == 79:
             return None, True
-        return read_grade(output, stdout), False
+        return complexity, False
 
 def live_lock(lock):
     """True when a regular in-flight lock belongs to a live process; stale locks are removed."""
@@ -370,7 +502,8 @@ def run_card(card):
             try:
                 process = subprocess.Popen(['bash', str(launcher), '--backend', backend, '--config', str(config_path),
                                             '--card', json.dumps(current), '--lane', lane, explicit[0],
-                                            '--tier', args.tier] + (['--complexity', complexity] if complexity else []),
+                                            '--tier', args.tier, '--evidence', str(lanes_path)]
+                                           + (['--complexity', complexity] if complexity else []),
                                            stdout=subprocess.PIPE, text=True, start_new_session=True)
                 active.add(process)
                 lock.write_text(f'PID={process.pid}\nLANE={lane}\nBACKEND={backend}\nSTARTED={time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}\n')

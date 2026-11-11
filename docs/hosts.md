@@ -69,6 +69,13 @@ omp -p --mode json --no-title --auto-approve \
   else fails closed.
 - `--max-cost` exit 3 becomes `status=halted`/`cost-cap`; a `--max-time` deadline
   becomes `halted`/`time-cap`. Card, claim, worktree and PR are preserved.
+- Every lane appends `{ts, card, lane, role, provider, model, thinking, cost, status}`
+  to the run's `lanes.jsonl` (default `<paths.runs_dir>/<date>-<config>-<backend>/`,
+  or the parent of `--output`; `--evidence <file>` overrides it). `cost` is the USD
+  from OMP's session files, subagents included; the resolved pair comes from the
+  guard extension's `SUPER_BOARD_LANE_MODEL_FILE`. The `@classify` grade writes the
+  same record with `lane=classify` and `complexity`, so the model table per stage
+  needs no manual probe.
 - `--no-extensions` plus an explicit `-e` keeps user extensions out. The guard
   extension calls the six Python hooks unchanged and narrows `task` subagents to
   `read,bash,grep,glob`: a child session does not inherit the parent's `--tools`.

@@ -2,6 +2,7 @@
 # One headless board lane on a non-Claude worker host, chosen by --backend.
 # Usage: --backend codex --config f --card '<JSON>' --lane build|qa|review
 #        [--<backend>[=model]] [--tier low|medium|high] [--complexity low|medium|high]
+#        [--evidence <lanes.jsonl>]
 # --<backend> (e.g. --codex) is the run owner's explicit opt-in; without it,
 # usage fallback may build/test but must never own a review or merge, and the
 # board config must say "usage_fallback": "<backend>" (exit 78 otherwise).
@@ -23,10 +24,133 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 
 def fail(message, code=64):
     print(message, file=sys.stderr)
     sys.exit(code)
+
+def append_jsonl(path, record):
+    """Append one record atomically; parallel lanes share the same evidence file."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    line = (json.dumps(record) + '\n').encode()
+    descriptor = os.open(path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o644)
+    try:
+        os.write(descriptor, line)
+    finally:
+        os.close(descriptor)
+
+def events(text):
+    for line in (text or '').splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(event, dict):
+            yield event
+
+def session_cost(directory):
+    """USD spent by the lane from OMP's session files, subagents included when
+    they share --session-dir. The files are the durable record; stdout is the
+    fallback for hosts that do not write one."""
+    total, seen = 0.0, False
+    try:
+        paths = list(Path(directory).rglob('*.jsonl'))
+    except OSError:
+        return None
+    for path in paths:
+        try:
+            stream = path.open()
+        except OSError:
+            continue
+        with stream:
+            for line in stream:
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(event, dict):
+                    continue
+                if event.get('type') == 'message':
+                    message = event.get('message') or {}
+                    if message.get('role') != 'assistant':
+                        continue
+                    value = ((message.get('usage') or {}).get('cost') or {}).get('total')
+                elif event.get('type') == 'model_usage':
+                    value = ((event.get('usage') or {}).get('cost') or {}).get('total')
+                else:
+                    continue
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    total += value
+                    seen = True
+    return round(total, 8) if seen else None
+
+def output_cost(text):
+    """USD from the NDJSON stream when no session file is available.
+
+    `agent_end.telemetry` already aggregates the messages, so it wins over the
+    per-message totals instead of being added to them."""
+    telemetry = None
+    messages_total, seen = 0.0, False
+    for event in events(text):
+        if event.get('type') == 'message_end':
+            message = event.get('message') or {}
+            value = ((message.get('usage') or {}).get('cost') or {}).get('total')
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                messages_total += value
+                seen = True
+        elif event.get('type') == 'agent_end':
+            value = (((event.get('telemetry') or {}).get('cost') or {}).get('estimatedUsd'))
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                telemetry = value if telemetry is None else telemetry + value
+    if telemetry is not None:
+        return round(telemetry, 8)
+    return round(messages_total, 8) if seen else None
+
+def run_cost(run, stdout):
+    cost = session_cost(run['session_dir'])
+    return cost if cost is not None else output_cost(stdout)
+
+def resolved_identity(model_file, requested):
+    """(role, provider, model, thinking) from the guard extension's evidence file."""
+    data = {}
+    if model_file:
+        try:
+            loaded = json.loads(Path(model_file).read_text())
+        except (OSError, ValueError):
+            loaded = None
+        if isinstance(loaded, dict):
+            data = loaded
+    role = data.get('role')
+    if isinstance(role, str) and role.strip():
+        role = role.strip().lstrip('@')
+    else:
+        role = requested[1:] if isinstance(requested, str) and requested.startswith('@') else None
+    provider = data.get('provider') if isinstance(data.get('provider'), str) else None
+    model = data.get('model') if isinstance(data.get('model'), str) else None
+    if model is None and isinstance(requested, str) and not requested.startswith('@'):
+        if '/' in requested:
+            provider = provider or requested.split('/', 1)[0]
+            model = requested.split('/', 1)[1]
+        else:
+            model = requested
+    thinking = data.get('thinking') if isinstance(data.get('thinking'), str) else None
+    return role, provider, model, thinking
+
+def lane_evidence(run, stdout, status):
+    role, provider, model, thinking = resolved_identity(run.get('model_file'), run.get('model'))
+    return {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+            'card': run['row'].get('number') if isinstance(run.get('row'), dict) else None,
+            'lane': run.get('lane'), 'role': role, 'provider': provider, 'model': model,
+            'thinking': thinking, 'cost': run_cost(run, stdout), 'status': status}
+
+def default_evidence(config, root, backend_name, config_path):
+    runs = Path(((config.get('paths') or {}).get('runs_dir') or 'docs/super-board/runs'))
+    if not runs.is_absolute():
+        runs = root / runs
+    day = time.strftime('%Y-%m-%d', time.localtime())
+    return runs / f'{day}-{config_path.stem}-{backend_name}' / 'lanes.jsonl'
 
 
 class Codex:
@@ -252,6 +376,7 @@ parser.add_argument('--card', required=True, help='card JSON or a JSON file')
 parser.add_argument('--lane', required=True, choices=['build', 'qa', 'review'])
 parser.add_argument('--tier', choices=['low', 'medium', 'high'], help='run ladder (--low / default / --high)')
 parser.add_argument('--complexity', choices=['low', 'medium', 'high'], help="router's grade for this card")
+parser.add_argument('--evidence', help='lanes.jsonl to append the resolved model/cost record to')
 explicit = False
 model = None
 rest = []
@@ -267,6 +392,7 @@ for arg in raw:
         rest.append(arg)
 args = parser.parse_args(rest)
 script_path = Path(sys.argv[1]).resolve()
+evidence_path = Path(args.evidence).expanduser().resolve() if args.evidence else None
 if args.lane == 'review' and not explicit:
     fail(f'{backend.label} review refused: run must be started with explicit {flag}; usage fallback cannot review.', 78)
 try:
@@ -523,6 +649,9 @@ def choose_result(raws):
     raise ValueError(rejected(str(parse_error or 'no result text'), raws[0]))
 
 child = None
+run = None
+stdout = ''
+evidence_status = {'status': 'failed'}
 def interrupted(signum, frame):
     if child is not None:
         child.terminate()
@@ -531,6 +660,7 @@ def interrupted(signum, frame):
         except subprocess.TimeoutExpired:
             child.kill()
             child.wait()
+    evidence_status['status'] = 'halted'
     result('halted', 'lane interrupted; preserve claims and worktrees')
     sys.exit(128 + signum)
 signal.signal(signal.SIGTERM, interrupted)
@@ -540,7 +670,8 @@ try:
                model=model, prompt=prompt, schema_path=Path(temporary) / 'schema.json',
                output=output_path, roles_path=Path(temporary) / 'roles.yml',
                session_dir=Path(temporary) / 'sessions',
-               model_file=Path(temporary) / 'model.json', row=card)
+               model_file=Path(temporary) / 'model.json', row=card,
+               evidence=evidence_path or default_evidence(config, root, backend.name, config_path))
     run['schema_path'].write_text(json.dumps(schema))
     try:
         command, stdin = backend.command(run)
@@ -554,9 +685,15 @@ try:
                                  env=backend.environment(run) if hasattr(backend, 'environment') else None,
                                  text=True)
         stdout, stderr = child.communicate(stdin)
-        require_verification_ready()
+        try:
+            require_verification_ready()
+        except SystemExit as error:
+            if error.code:
+                evidence_status['status'] = 'halted'
+            raise
         if child.returncode:
             special = backend.halted_detail(run, child.returncode, stdout, stderr) if hasattr(backend, 'halted_detail') else None
+            evidence_status['status'] = 'halted' if special or child.returncode in (9, 10, 79) else 'failed'
             if special:
                 result('halted', special)
                 sys.exit(79)
@@ -565,6 +702,7 @@ try:
                    if child.returncode == 9 else 'skills-readiness: required skills became unavailable; preserve work' if child.returncode == 10 else f"{' '.join(command[:2])} exited {child.returncode}")
             sys.exit(child.returncode if child.returncode in (9, 10, 79) else 1)
         parsed = choose_result(backend.final_messages(run, stdout))
+        evidence_status['status'] = parsed['status']
         print(json.dumps(parsed))
         sys.exit(10 if parsed['status'] == 'halted' and parsed['detail'].startswith('skills-readiness:')
                  else 9 if parsed['status'] == 'halted' and parsed['detail'].startswith('verification-readiness:')
@@ -573,5 +711,10 @@ try:
         result('failed', f'{backend.label} returned no valid lane result: {error}')
         sys.exit(1)
 finally:
+    if run is not None and child is not None:
+        try:
+            append_jsonl(run['evidence'], lane_evidence(run, stdout, evidence_status['status']))
+        except OSError:
+            pass   # evidence never blocks the lane result
     shutil.rmtree(temporary, ignore_errors=True)
 PY
