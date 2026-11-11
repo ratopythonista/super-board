@@ -65,6 +65,10 @@ else:
                              prUrl=None, branch=None, priorFindings=None))
 print(json.dumps({'type': 'message_start', 'message': {'role': 'assistant', 'content': []}}))
 print(json.dumps({'type': 'message_end', 'message': {'role': 'assistant', 'content': [{'type': 'text', 'text': result}]}}))
+if os.environ.get('SB_OMP_TEST_TRAILING'):
+    # An aborted `task` subagent can emit its own text after the main session ends.
+    print(json.dumps({'type': 'message_end', 'message': {'role': 'assistant',
+                                                         'content': [{'type': 'text', 'text': os.environ['SB_OMP_TEST_TRAILING']}]}}))
 if not os.environ.get('SB_OMP_TEST_SKIP_FILE'):
     target = result_path(prompt)
     if target:

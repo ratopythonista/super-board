@@ -74,8 +74,12 @@ for Review), `--max-time`/`--max-cost` from `omp.limits.<lane>`, `--no-extension
 and an explicit `-e .omp/extensions/super-board-guards.ts`. The extension runs the
 six Python hooks and narrows `task` subagents to `read,bash,grep,glob` (a child
 session does not inherit `--tools`). A lane writes its result to a private temp
-file named in the prompt; the wrapper validates the same schema and falls back to
-the last assistant message of the NDJSON stream. Exit 3 is `halted`/`cost-cap`, a
+file named in the prompt; the wrapper accepts bare JSON, a fenced JSON block or the
+first JSON object in prose, then scans the NDJSON assistant messages newest first,
+so an aborted `task` subagent's last text is skipped instead of inherited. A
+rejected payload is kept at
+`.claude/super-board/rejected/lane-result-rejected-<lane>-<card>.{json,txt}`, and
+the failure names that path plus every schema path that missed. Exit 3 is `halted`/`cost-cap`, a
 deadline is `halted`/`time-cap`; both preserve card, claim, worktree and PR.
 A finding is open only when the current diff, PR body or QA evidence still contains it.
 A historical comment citing a line the artifact already corrected is `no longer applies`

@@ -371,7 +371,7 @@ Write it atomically (temp file + rename) after every answer. A halt never loses 
    │    │    on exit 65 ask claude/codex/opencode/omp), verify_commands (non-blank project checks). No `variant`.
    │    ├─ .claude/super-board/active ← <slug>
    │    ├─ .gitignore += .claude/super-board/active, onboard-answers.json, onboard-staged/,
-   │    │    backup/, inflight/, migrations/, upgrade.json (all under .claude/super-board/)
+   │    │    backup/, inflight/, migrations/, rejected/, upgrade.json (all under .claude/super-board/)
    │    ├─ settings.json: super-board-settings.py allow … ; protect main →
    │    │    super-board-settings.py hooks .claude/settings.json <pack>/hooks/settings-protect-main.json
    │    ├─ AGENTS.md / CLAUDE.md: super-board-agents-md.py backup, then write --src <staged>

@@ -61,9 +61,9 @@ class Codex:
             command[2:2] = ['-m', run['model']]
         return command, run['prompt']
 
-    def final_message(self, run, stdout):
-        """The host's last message, which must be the lane result JSON."""
-        return run['output'].read_text()
+    def final_messages(self, run, stdout):
+        """Candidate result texts: the host's last message, which must be the lane result JSON."""
+        return [run['output'].read_text()]
 
 
 class Omp:
@@ -189,16 +189,20 @@ class Omp:
             return 'time-cap'
         return None
 
-    def final_message(self, run, stdout):
+    def final_messages(self, run, stdout):
+        """Candidate result texts: the private result file first, then every assistant
+        message of the NDJSON stream, newest first.
+
+        Aborted `task` subagents can emit their own last text as the session closes;
+        the shared picker skips anything that is not a lane result, so a subagent's
+        prose never hides the worker's JSON.
+        """
         try:
             text = run['output'].read_text().strip()
         except OSError:
             text = ''
-        if text:
-            return text
-        # --mode json: the last assistant message is the lane result when the
-        # worker did not write the result file. Fail closed on anything else.
-        last = None
+        candidates = [text] if text else []
+        texts = []
         for line in (stdout or '').splitlines():
             try:
                 event = json.loads(line)
@@ -206,26 +210,27 @@ class Omp:
                 continue
             if not isinstance(event, dict):
                 continue
-            message = event.get('message')
-            if isinstance(message, dict) and message.get('role') == 'assistant':
-                last = message
+            if isinstance(event.get('message'), dict) and event['message'].get('role') == 'assistant':
+                messages = [event['message']]
             elif event.get('type') == 'agent_end':
-                for message in reversed(event.get('messages') or []):
-                    if isinstance(message, dict) and message.get('role') == 'assistant':
-                        last = message
-                        break
-        if not isinstance(last, dict):
-            raise ValueError('no result file and no assistant message in --mode json output')
-        text = ''.join(block.get('text', '') for block in last.get('content') or []
-                       if isinstance(block, dict) and block.get('type') == 'text')
-        if not text.strip():
-            raise ValueError('last assistant message has no text')
-        return text
+                messages = [message for message in reversed(event.get('messages') or [])
+                            if isinstance(message, dict) and message.get('role') == 'assistant']
+            else:
+                continue
+            for message in messages:
+                text = ''.join(block.get('text', '') for block in message.get('content') or []
+                               if isinstance(block, dict) and block.get('type') == 'text')
+                if text.strip():
+                    texts.append(text.strip())
+        candidates.extend(reversed(texts))
+        if not candidates:
+            raise ValueError('no result file and no assistant text in --mode json output')
+        return candidates
 
 
 # One entry per worker host. A new host is one more class with the same members:
-# name, label, LADDERS (or None), capture_stdout (True hands stdout to final_message),
-# command(run) and final_message(run, stdout). Everything else in this file is shared.
+# name, label, LADDERS (or None), capture_stdout (True hands stdout to final_messages),
+# command(run) and final_messages(run, stdout). Everything else in this file is shared.
 BACKENDS = {backend.name: backend for backend in [Codex(), Omp()]}
 
 raw = sys.argv[2:]
@@ -359,7 +364,7 @@ Source .claude/bin/super-board-gh-guard.sh and use its quota checks. Required Gi
 Use .claude/bin/super-board-card.sh for board reads/moves and .claude/bin/super-board-pr-body.sh for owned PR blocks; follow writing-standard.md and pr-author-notes.md.
 Use your own worktree under .claude/worktrees/; never edit the main checkout. Clean up on ordinary exit, preserve work on halt/interruption.
 {adaptation}
-Return JSON: status=advanced|bounced|blocked|human-gate|failed|halted; column=current board column; detail=one line; prUrl/branch when known, otherwise null; priorFindings=review counts or null. A non-advanced exit ends this card's lane chain. On merge-gate exit 9, return status=halted with detail starting exactly "verification-readiness:"; preserve work and never bounce/retry.
+Return JSON: an object with ALL six keys, never omitted: status=advanced|bounced|blocked|human-gate|failed|halted; column=current board column; detail=one line; prUrl=<PR URL> or null; branch=<branch name> or null; priorFindings=null, or on a Review re-review {{"fixed":<int>,"notFixed":<int>,"noLongerApplies":<int>}} with all three keys. A value you do not have is null, never absent, and no other keys are allowed. A non-advanced exit ends this card's lane chain. On merge-gate exit 9, return status=halted with detail starting exactly "verification-readiness:"; preserve work and never bounce/retry.
 '''
 if args.lane == 'build':
     prompt += '''Before creating any worktree or changing code, perform run.md's Builder pre-flight inline: call super-board-preflight.sh, judge its candidates semantically, and act on proceed/hold/sequence/skipped. Blind preflight leaves Ready and returns failed. Your own issue branch PR is not a duplicate. Read the issue and all comments; preserve qa/bug/feature labels. Existing docs/ux/tests/refactor/tech-debt rows keep their label chain: classify complexity without adding feature/bug. If truly untyped, classify feature or bug, re-run skills-ready on the proposed labelled card before adding that label, never qa. Then follow the Builder lifecycle.
@@ -382,20 +387,141 @@ properties = {
 }
 schema = {'type': 'object', 'properties': properties, 'required': list(properties), 'additionalProperties': False}
 JSON_TYPES = {'object': dict, 'array': list, 'string': str, 'null': type(None)}
-def conforms(value, rule):
-    # The subset of JSON Schema the lane schema uses: type, enum, anyOf, properties/required/additionalProperties.
-    if 'anyOf' in rule:
-        return any(conforms(value, option) for option in rule['anyOf'])
-    kinds = rule['type'] if isinstance(rule['type'], list) else [rule['type']]
-    if not any(type(value) is int if kind == 'integer' else isinstance(value, JSON_TYPES[kind]) for kind in kinds):
-        return False
-    if 'enum' in rule and value not in rule['enum']:
-        return False
+FENCE = re.compile(r'```(?:json)?[ \t]*\n?(.*?)```', re.S | re.I)
+
+def json_kind(value):
+    """The JSON type name of a Python value, so the error says what arrived."""
+    if value is None:
+        return 'null'
+    if isinstance(value, bool):
+        return 'boolean'
+    if isinstance(value, int):
+        return 'integer'
+    if isinstance(value, float):
+        return 'number'
+    if isinstance(value, str):
+        return 'string'
+    if isinstance(value, list):
+        return 'array'
     if isinstance(value, dict):
-        if set(value) - set(rule['properties']) or not set(rule['required']) <= set(value):
-            return False
-        return all(conforms(value[key], rule['properties'][key]) for key in value)
-    return True
+        return 'object'
+    return type(value).__name__
+
+def matches_type(value, rule):
+    kinds = rule.get('type')
+    if kinds is None:
+        return True
+    for kind in kinds if isinstance(kinds, list) else [kinds]:
+        if kind == 'integer':
+            if type(value) is int:   # bool is not a JSON integer
+                return True
+        elif kind in JSON_TYPES and isinstance(value, JSON_TYPES[kind]):
+            return True
+    return False
+
+def violations(value, rule, path='$'):
+    """Every way `value` misses `rule`, with the schema path that failed.
+
+    The subset of JSON Schema the lane schema uses: type, enum, anyOf,
+    properties/required/additionalProperties. A missing key and an extra key
+    must name themselves, which is why this is not a boolean.
+    """
+    if 'anyOf' in rule:
+        options = rule['anyOf']
+        typed = [option for option in options if matches_type(value, option)]
+        for option in typed or options:
+            if not violations(value, option, path):
+                return []
+        return violations(value, (typed or options)[0], path)
+    if not matches_type(value, rule):
+        expected = rule['type']
+        expected = ' or '.join(expected) if isinstance(expected, list) else expected
+        return [f'{path}: expected {expected}, got {json_kind(value)}']
+    if 'enum' in rule and value not in rule['enum']:
+        return [f'{path}: {json.dumps(value)} is not one of ' + ', '.join(str(item) for item in rule['enum'])]
+    if isinstance(value, dict):
+        found = [f'{path}.{key}: unexpected key' for key in value if key not in rule['properties']]
+        found += [f'{path}.{key}: required key missing' for key in rule['required'] if key not in value]
+        for key in value:
+            if key in rule['properties']:
+                found += violations(value[key], rule['properties'][key], f'{path}.{key}')
+        return found
+    return []
+
+def conforms(value, rule):
+    return not violations(value, rule)
+
+def parse_result(text):
+    """The lane result object from the final text: bare JSON, a ```json fence, or
+    the first JSON object embedded in prose. Names what was wrong when none is there."""
+    text = (text or '').strip()
+    if not text:
+        raise ValueError('empty result text')
+    try:
+        return json.loads(text)
+    except ValueError:
+        pass
+    for match in FENCE.finditer(text):
+        try:
+            return json.loads(match.group(1))
+        except ValueError:
+            continue
+    decoder = json.JSONDecoder()
+    for index, character in enumerate(text):
+        if character == '{':
+            try:
+                return decoder.raw_decode(text, index)[0]
+            except ValueError:
+                continue
+    raise ValueError('no JSON object in the final text (prose or malformed JSON)')
+
+def rejected_path(text):
+    directory = root / '.claude/super-board/rejected'
+    directory.mkdir(parents=True, exist_ok=True)
+    try:
+        json.loads(text)
+    except ValueError:
+        suffix = '.txt'
+    else:
+        suffix = '.json'
+    return directory / f'lane-result-rejected-{args.lane}-{card["number"]}{suffix}'
+
+def rejected(detail, text):
+    """The failure line for a rejected payload, after keeping that payload on disk."""
+    text = text or ''
+    if not text.strip():
+        return detail + '; payload was empty'
+    try:
+        path = rejected_path(text)
+        path.write_text(text if text.endswith('\n') else text + '\n')
+    except OSError as error:
+        return f'{detail}; could not preserve the payload: {error}'
+    return f'{detail}; payload preserved at {path}'
+
+def choose_result(raws):
+    """The first candidate that parses and conforms to the lane schema.
+
+    A candidate that is prose (an aborted subagent's last text, a model that
+    answered in words) is skipped, never inherited; a parsed payload that misses
+    the schema names every bad path and leaves the payload on disk.
+    """
+    parse_error = first_parsed = None
+    for raw in raws:
+        try:
+            value = parse_result(raw)
+        except ValueError as error:
+            parse_error = parse_error or error
+            continue
+        found = violations(value, schema)
+        if not found:
+            return value
+        if first_parsed is None:
+            first_parsed = (raw, found)
+    if first_parsed is not None:
+        raw, found = first_parsed
+        raise ValueError(rejected('lane result does not match the lane schema: ' + '; '.join(found), raw))
+    raise ValueError(rejected(str(parse_error or 'no result text'), raws[0]))
+
 child = None
 def interrupted(signum, frame):
     if child is not None:
@@ -438,9 +564,7 @@ try:
                    'verification-readiness: repair verify_commands and restart explicitly; preserve work'
                    if child.returncode == 9 else 'skills-readiness: required skills became unavailable; preserve work' if child.returncode == 10 else f"{' '.join(command[:2])} exited {child.returncode}")
             sys.exit(child.returncode if child.returncode in (9, 10, 79) else 1)
-        parsed = json.loads(backend.final_message(run, stdout))
-        if not conforms(parsed, schema):
-            raise ValueError('lane result does not match the lane schema')
+        parsed = choose_result(backend.final_messages(run, stdout))
         print(json.dumps(parsed))
         sys.exit(10 if parsed['status'] == 'halted' and parsed['detail'].startswith('skills-readiness:')
                  else 9 if parsed['status'] == 'halted' and parsed['detail'].startswith('verification-readiness:')

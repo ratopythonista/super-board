@@ -61,8 +61,12 @@ omp -p --mode json --no-title --auto-approve \
   Review always uses `@review`. `--omp=<model|@role>` pins every lane and is the
   explicit Review opt-in. `omp.model` pins too.
 - The lane writes its result JSON to a private temp file named in the prompt;
-  the wrapper validates it with the same `conforms()` schema as Codex, then falls
-  back to the last assistant message in the NDJSON stream. Anything else fails closed.
+  the wrapper validates it with the same schema as Codex (bare JSON, a fenced JSON block, or the first JSON object in prose), then scans the NDJSON assistant
+  messages newest first, so an aborted `task` subagent's last text is skipped
+  instead of inherited. A rejected payload is kept at
+  `.claude/super-board/rejected/lane-result-rejected-<lane>-<card>.{json,txt}`,
+  and the failure names that path and every schema path that missed. Anything
+  else fails closed.
 - `--max-cost` exit 3 becomes `status=halted`/`cost-cap`; a `--max-time` deadline
   becomes `halted`/`time-cap`. Card, claim, worktree and PR are preserved.
 - `--no-extensions` plus an explicit `-e` keeps user extensions out. The guard

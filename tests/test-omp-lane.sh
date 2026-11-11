@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Stubbed OMP only: model roles/pinning, review consent, caps, allowlist, guard
-# extension, result file + NDJSON fallback, wave routing/concurrency/halt/locks.
+# extension, result file + NDJSON fallback + rejected-payload evidence, wave
+# routing/concurrency/halt/locks.
 # No network. Every case runs through super-board-omp-lane.sh and
 # super-board-lane.sh --backend omp where a lane is involved.
 set -euo pipefail
@@ -137,10 +138,43 @@ bash "$KIT/scripts/super-board-omp-lane.sh" --config "$T/config2.json" --card "$
 RC=0; lane build --omp= >"$T/out" || RC=$?
 [ "$RC" -eq 64 ] || fail 'empty explicit role must refuse'
 
-# Result sources: private file first, then the last NDJSON assistant message; malformed fails closed.
+# Result sources: private file first, then the NDJSON assistant messages newest
+# first; prose (including an aborted subagent's last text) is skipped, never
+# inherited; a payload that is not JSON or misses the schema is kept on disk and
+# named by path, and the detail names every schema path that failed.
 : > "$SB_OMP_TEST_LOG"
 SB_OMP_TEST_SKIP_FILE=1 lane build --omp >"$T/out"
 jq -e '.status == "advanced"' "$T/out" >/dev/null || fail 'NDJSON fallback must recover the lane result'
+SB_OMP_TEST_SKIP_FILE=1 SB_OMP_TEST_TRAILING='subagent still reviewing; no JSON here' lane build --omp >"$T/out"
+jq -e '.status == "advanced"' "$T/out" >/dev/null || fail "an aborted subagent's trailing prose must not hide the lane result"
+FUZZ='{"status":"advanced","column":"QA","detail":"x","prUrl":null,"branch":null,"priorFindings":null}'
+SB_OMP_TEST_SKIP_FILE=1 SB_OMP_TEST_RESULT="Here is the lane result:
+\`\`\`json
+$FUZZ
+\`\`\`
+Done." lane build --omp >"$T/out"
+jq -e '.status == "advanced"' "$T/out" >/dev/null || fail 'a fenced JSON result inside prose must be accepted'
+REJECTED=.claude/super-board/rejected
+rm -rf "$REJECTED"
+RC=0; SB_OMP_TEST_RESULT='{"status":"advanced","column":"QA","detail":"x","prUrl":null,"priorFindings":null}' lane build --omp >"$T/out" || RC=$?
+[ "$RC" -eq 1 ] && jq -e '.status == "failed"' "$T/out" >/dev/null || fail 'a result missing a required key must fail closed'
+jq -e '.detail | contains("required key missing") and contains("$.branch") and contains("lane-result-rejected-build-1.json")' "$T/out" >/dev/null \
+  || fail 'the detail must name the missing key and the saved payload'
+jq -e 'has("branch") | not' "$REJECTED/lane-result-rejected-build-1.json" >/dev/null \
+  || fail 'the rejected payload must be preserved verbatim'
+rm -rf "$REJECTED"
+RC=0; SB_OMP_TEST_RESULT='{"status":"advanced","column":"QA","detail":"x","prUrl":null,"branch":null,"priorFindings":null,"note":"extra"}' lane build --omp >"$T/out" || RC=$?
+[ "$RC" -eq 1 ] || fail 'a result with an extra key must fail closed'
+jq -e '.detail | contains("unexpected key") and contains("$.note") and contains("lane-result-rejected-build-1.json")' "$T/out" >/dev/null \
+  || fail 'the detail must name the extra key and the saved payload'
+rm -rf "$REJECTED"
+RC=0; SB_OMP_TEST_RESULT='{"status":"advanced","column":"QA","detail":"x","prUrl":null,"branch":null,"priorFindings":{"fixed":1,"notFixed":0}}' lane build --omp >"$T/out" || RC=$?
+[ "$RC" -eq 1 ] && jq -e '.detail | contains("$.priorFindings.noLongerApplies: required key missing")' "$T/out" >/dev/null \
+  || fail 'priorFindings must require all three counts'
+rm -rf "$REJECTED"
+RC=0; SB_OMP_TEST_SKIP_FILE=1 SB_OMP_TEST_RESULT='reviewed everything, looks good' lane build --omp >"$T/out" || RC=$?
+[ "$RC" -eq 1 ] && jq -e '.detail | contains("no JSON object") and contains("lane-result-rejected-build-1.txt")' "$T/out" >/dev/null \
+  || fail 'prose must be preserved as text and named'
 RC=0; SB_OMP_TEST_INVALID=1 lane build --omp >"$T/out" || RC=$?
 [ "$RC" -eq 1 ] && jq -e '.status == "failed"' "$T/out" >/dev/null || fail 'invalid result fails closed'
 
@@ -207,8 +241,8 @@ RC=0; SB_OMP_TEST_INVALID=1 SB_OMP_TEST_BOARD=QA wave_board >"$T/out" || RC=$?
 [ "$RC" -eq 0 ] || fail "a dead lane fails its card, not the wave (got $RC)"
 jq -e '.halted == false and .cards[0].finalStatus == "failed" and .cards[0].column == "QA"' "$T/out" >/dev/null \
   || fail 'a failed lane must report the board column, not the entry column'
-jq -e '.cards[0].detail | contains("no valid result (exit 1)") and contains("lane printed failed: OMP returned no valid lane result") and contains("board moved Ready → QA")' "$T/out" >/dev/null \
-  || fail 'the detail must keep the lane failure and name the board move'
+jq -e '.cards[0].detail | contains("no valid result (exit 1)") and contains("lane printed failed: OMP returned no valid lane result") and contains("board moved Ready → QA") and contains("payload preserved at") and contains("lane-result-rejected-build-1.txt")' "$T/out" >/dev/null \
+  || fail 'the detail must keep the lane failure, name the board move and the saved payload'
 
 RC=0; SB_OMP_TEST_INVALID=1 SB_OMP_TEST_BOARD=Ready wave_board >"$T/out" || RC=$?
 [ "$RC" -eq 0 ] && jq -e '.cards[0].column == "Ready" and (.cards[0].detail | contains("board at Ready"))' "$T/out" >/dev/null \

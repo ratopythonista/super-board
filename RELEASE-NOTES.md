@@ -29,6 +29,12 @@ OMP becomes a first-class host and lane backend (ADR-0031, #94).
   `super-board-card.sh`, reports `failed` with that column and the move (`board moved Ready → QA`)
   and keeps the lane's printed detail. An unreadable board read halts the wave and names the
   column unread, so the summary never echoes the entry column (#97).
+- 🐛 **A rejected lane result is no longer thrown away.** The lane accepts bare JSON, a
+  fenced JSON block or the first JSON object in prose, scans the NDJSON messages newest first so an
+  aborted `task` subagent's text is skipped instead of inherited, and names every schema path
+  that missed (`$.branch: required key missing`, `$.note: unexpected key`). The payload is kept
+  at `.claude/super-board/rejected/lane-result-rejected-<lane>-<card>.{json,txt}` and the
+  failure detail — therefore `wave-result.json` — cites that file (#100).
 - 🐛 **The size gate counts product lines.** `merge_policy.auto_max_lines` (400) now ignores
   `docs/**`, so the QA evidence the Tester must commit to the branch (logs and screenshots under
   `docs/super-board/runs/issue-<N>-qa-v*/`) no longer sends a small product PR to the human gate
