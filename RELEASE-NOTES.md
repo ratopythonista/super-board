@@ -49,6 +49,10 @@ OMP becomes a first-class host and lane backend (ADR-0031, #94).
   `pr view <N> --json statusCheckRollup`; `[]` means no checks are configured and is green, and
   `gh pr checks`' "no checks reported" is accepted as the same empty answer. The Reviewer records
   `CI: nenhum check configurado` on the report's `Did:` line instead of halting the wave (#101).
+- 🐛 **The stop comment keeps a worktree branch's resume point.** `last_commit_on_branch` strips
+  the `+` that `git branch` puts before a branch checked out in another worktree (and `*` for the
+  current one) before `git log`, so the comment names the tip instead of
+  `(branch found but no commits)` (#102).
 - 🧪 `test-codex-lane.sh` covers the generalized launcher; new `test-omp-lane.sh`,
   `test-omp-guards.sh` and host/skills/setup cases cover OMP.
 

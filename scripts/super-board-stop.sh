@@ -87,9 +87,12 @@ pr_for_issue() {
 }
 
 # Latest commit on the issue's branch (local or remote). Best-effort.
+# `git branch` prefixes the current branch with `*` and a branch checked out in
+# another worktree with `+`; strip either decoration (one char + one space)
+# before handing the name to `git log`.
 last_commit_on_branch() {
   local issue="$1" branch
-  branch=$(git branch -a --list "*issue-${issue}-*" 2>/dev/null | head -1 | sed 's|^[* ]*||;s|^remotes/[^/]*/||')
+  branch=$(git branch -a --list "*issue-${issue}-*" 2>/dev/null | head -1 | sed -E 's/^[*+ ] //;s|^remotes/[^/]*/||')
   [ -z "$branch" ] && { echo "(no branch yet)"; return; }
   git log -1 --format='%h %s' "$branch" 2>/dev/null || echo "(branch found but no commits)"
 }
