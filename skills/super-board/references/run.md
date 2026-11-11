@@ -410,6 +410,12 @@ If a screenshot file is >5MB, downscale to ≤1920px wide before committing; Git
    - Re-run the test command Tester used (recorded in Tester's PR handoff comment as `Local tests:` line).
    - Tests green → continue to step 6.
    - Tests red → open new `[qa]`-prefixed PR thread quoting the failure output, move card Review → QA with `loop:rebuild-N`, exit. Tester wrote a broken suite; QA owns the fix.
+5b. **CI checks** — one bounded read:
+   `python3 .claude/bin/super-board-github-read.py --kind checks -- pr view <PR> --json statusCheckRollup --jq .statusCheckRollup`.
+   `[]` means the repository has no CI configured: that is green, not missing evidence, and the
+   report's `Did:` line says `CI: nenhum check configurado`. Never read checks with `gh pr checks`:
+   in a repo without CI it exits 1 with "no checks reported" and would halt the run. A failing
+   check is a finding, not a read halt.
 6. **Adversarial mode** (per `truth_gate`): when triggered, spawn 2 sub-agents in parallel:
    - **Code-grounder** — verify cited file:line still exists and matches claims.
    - **Historian** — `git blame` the changed lines, check for ADRs / prior incidents.

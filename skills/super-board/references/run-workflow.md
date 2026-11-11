@@ -91,6 +91,9 @@ authentication, and permission errors stop immediately. Do not retry mutations.
 A payload that misses an agent-facing `--kind` shape (`READ_SHAPES` in
 `workflows/super-board-wave.js`) exits 64 for that call only, printing the valid
 form; it never halts the run. Fixed-command scripts set `SB_GITHUB_READ_STRICT=1`.
+A repository without CI is not an outage: `--kind checks` over
+`pr view <N> --json statusCheckRollup` returns `[]`, which means no checks are
+configured and the review continues.
 
 Exit **79**, a workflow result with `halted: true`, or a failed `--check` ends this
 run. Check the helper's `--check` before claims, board/comment writes, each new

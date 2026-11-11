@@ -115,6 +115,56 @@ sys.exit(r.get('rc', 0))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.log.read_text(), '1')
 
+    def test_no_checks_reported_is_a_valid_empty_read(self):
+        # #101: a repo without CI makes `gh pr checks` exit 1; that is an answer, not an outage.
+        for kind in ('checks', 'json'):
+            with self.subTest(kind=kind):
+                self.log.unlink(missing_ok=True)
+                self.halt.unlink(missing_ok=True)
+                r = self.read([{'rc': 1, 'err': "no checks reported on the 'issue-1-x' branch"}],
+                              kind, command=['pr', 'checks', '7', '--repo', 'o/r'])
+                self.assertEqual((r.returncode, r.stdout), (0, '[]\n'), r.stderr)
+                self.assertEqual(self.log.read_text(), '1')
+                self.assertIn('no CI checks configured', r.stderr)
+                self.assertFalse(self.halt.exists())
+
+    def test_empty_status_rollup_is_green(self):
+        # #101: `[]` from `pr view --json statusCheckRollup` means no CI is configured.
+        for out in ('[]', '{"statusCheckRollup":[]}'):
+            with self.subTest(out=out):
+                self.log.unlink(missing_ok=True)
+                self.halt.unlink(missing_ok=True)
+                r = self.read([{'out': out}], 'checks',
+                              command=['pr', 'view', '7', '--json', 'statusCheckRollup'])
+                self.assertEqual((r.returncode, r.stdout), (0, out), r.stderr)
+                self.assertEqual(self.log.read_text(), '1')
+                self.assertFalse(self.halt.exists())
+
+    def test_non_empty_checks_are_valid_evidence(self):
+        # A failing check makes `pr checks` exit 1, but the JSON is evidence, not an outage.
+        out = '[{"name":"ci","status":"COMPLETED","conclusion":"FAILURE"}]'
+        for response, command in [({'out': out}, ['pr', 'view', '7', '--json', 'statusCheckRollup']),
+                                  ({'out': out, 'rc': 1}, ['pr', 'checks', '7', '--json', 'name,state'])]:
+            with self.subTest(command=command):
+                self.log.unlink(missing_ok=True)
+                self.halt.unlink(missing_ok=True)
+                r = self.read([response], 'checks', command=command)
+                self.assertEqual((r.returncode, r.stdout), (0, out), r.stderr)
+                self.assertEqual(self.log.read_text(), '1')
+                self.assertFalse(self.halt.exists())
+
+    def test_checks_shape_mismatch_fails_only_that_read(self):
+        for out in ('not json', '{"statusCheckRollup":{}}', '[{"state":"SUCCESS"}]', '[{"name":"ci"}]'):
+            with self.subTest(out=out):
+                self.log.unlink(missing_ok=True)
+                self.halt.unlink(missing_ok=True)
+                r = self.read([{'out': out}], 'checks',
+                              command=['pr', 'view', '7', '--json', 'statusCheckRollup'])
+                self.assertEqual(r.returncode, 64, r.stderr)
+                self.assertEqual(self.log.read_text(), '3')
+                self.assertIn('Valid form: --kind checks -- ', r.stderr)
+                self.assertFalse(self.halt.exists())
+
     def test_incomplete_dependency_pages_are_not_a_graph(self):
         page = {'data': {'repository': {'issues': {
             'nodes': [], 'pageInfo': {'hasNextPage': True, 'endCursor': 'next'}}}}}

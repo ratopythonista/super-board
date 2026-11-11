@@ -33,6 +33,10 @@ OMP becomes a first-class host and lane backend (ADR-0031, #94).
   `docs/**`, so the QA evidence the Tester must commit to the branch (logs and screenshots under
   `docs/super-board/runs/issue-<N>-qa-v*/`) no longer sends a small product PR to the human gate
   (#96). `size_exclude` still replaces the whole default list.
+- 🐛 **A repository without CI no longer halts Review.** `--kind checks` reads
+  `pr view <N> --json statusCheckRollup`; `[]` means no checks are configured and is green, and
+  `gh pr checks`' "no checks reported" is accepted as the same empty answer. The Reviewer records
+  `CI: nenhum check configurado` on the report's `Did:` line instead of halting the wave (#101).
 - 🧪 `test-codex-lane.sh` covers the generalized launcher; new `test-omp-lane.sh`,
   `test-omp-guards.sh` and host/skills/setup cases cover OMP.
 

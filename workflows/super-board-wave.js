@@ -49,6 +49,7 @@ const READ_SHAPES = [
   `- PR branch+head: --kind head -- pr view <N> --json headRefName,headRefOid --jq '"\\(.headRefName) \\(.headRefOid)"'`,
   `- PR body+head: --kind body -- pr view <N> --json body,headRefOid`,
   `- PR metadata: --kind metadata -- pr view <N> --json files,labels,body,additions,deletions,changedFiles`,
+  `- PR CI checks: --kind checks -- pr view <N> --json statusCheckRollup --jq .statusCheckRollup ([] = no checks configured = green)`,
   `- issue state: --kind state -- issue view <N> --json state --jq .state`,
   `A read whose output misses its shape exits 64 for that call only and prints the valid form: fix the read, do not halt.`,
 ].join('\n')
