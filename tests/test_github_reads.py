@@ -24,6 +24,9 @@ p = pathlib.Path(os.environ['READ_CALLS'])
 n = int(p.read_text()) if p.exists() else 0
 p.write_text(str(n + 1))
 responses = json.loads(os.environ['READ_RESPONSES'])
+if os.environ.get('READ_REQUIRE_ESCAPE_FLAG') and '--allow-escape-sequences' not in sys.argv:
+    print('the diff contains terminal escape sequences; pass --allow-escape-sequences to output it anyway', file=sys.stderr)
+    sys.exit(1)
 r = responses[min(n, len(responses)-1)]
 print(r.get('out', ''), end='')
 print(r.get('err', ''), file=sys.stderr)
@@ -263,6 +266,23 @@ dispatch_lane build 7
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.log.read_text(), '1')
         self.assertEqual(result.stdout.decode(), diff)
+
+    def test_diff_with_terminal_escapes_retries_with_the_escape_hatch(self):
+        # #104: a QA evidence log may contain ANSI; gh >= 2.97 refuses `pr diff`
+        # unless --allow-escape-sequences is passed. That is valid evidence, not an outage.
+        metadata = self.root / 'meta.json'
+        metadata.write_text(json.dumps({'files':[{'path':'mutation-check.txt'}], 'additions':1,'deletions':0}))
+        diff = ('diff --git a/mutation-check.txt b/mutation-check.txt\n'
+                'new file mode 100644\n--- /dev/null\n+++ b/mutation-check.txt\n'
+                '@@ -0,0 +1 @@\n+\x1b[31mKILLED\x1b[0m\n')
+        self.env['READ_REQUIRE_ESCAPE_FLAG'] = '1'
+        self.env['READ_RESPONSES'] = json.dumps([{'out':''}, {'out':diff}])
+        result = subprocess.run(['python3', str(HELPER), '--kind', 'diff', '--meta', str(metadata),
+                                 '--', 'pr', 'diff', '1'], env=self.env, cwd=self.root, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, diff)
+        self.assertEqual(self.log.read_text(), '2')
+        self.assertFalse(self.halt.exists())
 
     def test_corrected_query_can_resume_without_erasing_original_failure(self):
         bad = ['api', 'graphql', '-f', 'query=query { wrong }']

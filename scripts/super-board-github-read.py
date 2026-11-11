@@ -341,10 +341,23 @@ def read(args, kind='json', meta=None, recovering=False):
         if not recovering:
             check_halt()
         try:
-            result = subprocess.run(['gh', *args], capture_output=True, timeout=30)
+            effective = args
+            result = subprocess.run(['gh', *effective], capture_output=True, timeout=30)
             # Decode by hand: text=True turns a lone \r inside a diff line into \n.
             result.stdout = result.stdout.decode('utf-8', 'replace')
             result.stderr = result.stderr.decode('utf-8', 'replace')
+            # gh >= 2.97 refuses a PR diff that contains terminal escape sequences.
+            # A QA evidence log may legitimately carry them, so retry the same read
+            # with the explicit escape hatch instead of halting the run. Older gh
+            # has no such refusal and no flag, so the flag is added only on this signal.
+            if (result.returncode and args[:2] == ['pr', 'diff']
+                    and '--allow-escape-sequences' not in args
+                    and 'terminal escape sequences' in result.stderr):
+                effective = [*args, '--allow-escape-sequences']
+                operation['args'] = effective
+                result = subprocess.run(['gh', *effective], capture_output=True, timeout=30)
+                result.stdout = result.stdout.decode('utf-8', 'replace')
+                result.stderr = result.stderr.decode('utf-8', 'replace')
             diagnostic = result.stderr
             if result.returncode:
                 diagnostic += result.stdout
