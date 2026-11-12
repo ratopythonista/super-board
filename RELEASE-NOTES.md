@@ -52,6 +52,9 @@ OMP becomes a first-class host and lane backend (ADR-0031, #94).
 - 🐛 **A missing conditional helper no longer halts the lane.** `--require <name>` exit 10
   only means that optional helper is unavailable; the worker skips it and continues inline.
   Only the initial readiness recheck halts on a missing required skill (#104).
+- 🐛 **Review lanes serialize across a wave.** One review owns the merge gate at a
+  time, so a transient shared halt or merge race from one card cannot poison a peer;
+  Build and QA lanes still run in parallel under `max_workers` (#104).
 - 🐛 **The size gate counts product lines.** `merge_policy.auto_max_lines` (400) now ignores
   `docs/**`, so the QA evidence the Tester must commit to the branch (logs and screenshots under
   `docs/super-board/runs/issue-<N>-qa-v*/`) no longer sends a small product PR to the human gate

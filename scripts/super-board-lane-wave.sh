@@ -235,6 +235,9 @@ readiness_halted = threading.Event()
 skills_halted = threading.Event()
 halted = threading.Event()
 mutex = threading.RLock()
+# Review lanes serialize like the workflow backend's merge-race guard: one review
+# owns the merge gate at a time, and a transient shared halt cannot poison a peer.
+review_lock = threading.Lock()
 active = set()
 inflight = root / '.claude/super-board/inflight'
 marker = root / f'.claude/super-board/{backend}-wave.pid'
@@ -489,9 +492,15 @@ def run_card(card, retried=False, complexity=None):
     history = []
     current = dict(card)
     for lane in lanes:
+        review_held = False
+        if lane == 'review':
+            review_lock.acquire()
+            review_held = True
         with mutex:
             if halted.is_set():
                 history.append(dict(lane='none', status='halted', column=current['status'], detail='run halted; preserve claims and worktrees'))
+                if review_held:
+                    review_lock.release()
                 break
             boundary = resolver.report(root, backend, [current], lane=lane,
                                        home=os.environ.get('SUPER_BOARD_SKILLS_HOME'), catalog=os.environ.get('SUPER_BOARD_SKILLS_CATALOG'))
@@ -500,6 +509,8 @@ def run_card(card, retried=False, complexity=None):
                 halted.set()
                 history.append(dict(lane=lane, status='halted', column=current['status'],
                                     detail='skills-readiness: missing ' + ', '.join(e['name'] for e in boundary['entries'] if e['status'] == 'missing')))
+                if review_held:
+                    review_lock.release()
                 break
             process = None
             lock = inflight / str(card['number'])
@@ -507,6 +518,8 @@ def run_card(card, retried=False, complexity=None):
                 halted.set()
                 history.append(dict(lane=lane, status='halted', column=current['status'],
                                     detail=f'in-flight lock {lock}: another worker owns card #{card["number"]}; preserve it'))
+                if review_held:
+                    review_lock.release()
                 break
             try:
                 process = subprocess.Popen(['bash', str(launcher), '--backend', backend, '--config', str(config_path),
@@ -525,6 +538,9 @@ def run_card(card, retried=False, complexity=None):
                         pass
                     process.wait()
                     active.discard(process)
+                if review_held:
+                    review_lock.release()
+                    review_held = False
                 history.append(dict(lane=lane, status='failed', column=current['status'],
                                     detail=f'could not start {lane} lane: {error}'))
                 break
@@ -588,6 +604,8 @@ def run_card(card, retried=False, complexity=None):
                     lock.unlink()
             except FileNotFoundError:
                 pass
+            if review_held:
+                review_lock.release()
     last = history[-1]
     summary = dict(number=card['number'], finalStatus=last['status'], lastLane=last['lane'],
                    column=last['column'], detail=last['detail'], prUrl=last.get('prUrl'),

@@ -329,14 +329,21 @@ RC=0; SB_OMP_TEST_INVALID=1 SB_OMP_TEST_BOARD_FAIL=1 wave_board >"$T/out" || RC=
 jq -e '.cards[0].detail | contains("board column unread")' "$T/out" >/dev/null || fail 'the unread board must be named'
 rm -f .claude/super-board/github-halt.json
 
-# Two cards in parallel under max_workers=2.
+# Two cards in parallel under max_workers=2 (QA lanes, not Review: reviews serialize).
 jq '.max_workers = 2' "$T/config.json" > "$T/config3.json"
-CARDS='[{"number":1,"status":"Review"},{"number":2,"status":"Review"}]'
+CARDS='[{"number":1,"status":"QA"},{"number":2,"status":"QA"}]'
 : > "$SB_OMP_TEST_LOG"
 SB_OMP_TEST_DELAY=1 bash "$KIT/scripts/super-board-omp-wave.sh" --config "$T/config3.json" --cards "$CARDS" --omp >"$T/out"
-jq -s -e 'map(.active) | max == 2' "$SB_OMP_TEST_LOG" >/dev/null || fail 'max_workers=2 must run cards together'
+jq -s -e 'map(.active) | max == 2' "$SB_OMP_TEST_LOG" >/dev/null || fail 'max_workers=2 must run QA lanes together'
 PARALLEL_LANES="docs/super-board/runs/$(date +%F)-config3-omp/lanes.jsonl"
 jq -s -e 'length >= 2 and all(.[]; has("card") and has("lane") and has("cost"))' "$PARALLEL_LANES" >/dev/null \
   || fail 'parallel lanes must append complete, parseable evidence records'
+
+# Review lanes serialize: two cards in Review never enter the merge gate together.
+CARDS='[{"number":1,"status":"Review"},{"number":2,"status":"Review"}]'
+: > "$SB_OMP_TEST_LOG"
+SB_OMP_TEST_DELAY=1 bash "$KIT/scripts/super-board-omp-wave.sh" --config "$T/config3.json" --cards "$CARDS" --omp >"$T/out"
+jq -s -e 'map(select(.lane == "review") | .active) | max == 1' "$SB_OMP_TEST_LOG" >/dev/null \
+  || fail 'review lanes must serialize'
 
 echo 'PASS: test-omp-lane.sh (roles/ladders/review/allowlist/caps/extension/results/wave/locks)'

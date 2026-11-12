@@ -96,7 +96,9 @@ comes from the run itself. `--evidence <file>` overrides the path for a single l
 A finding is open only when the current diff, PR body or QA evidence still contains it.
 A historical comment citing a line the artifact already corrected is `no longer applies`
 (note it, merge); a finding still present in the artifact bounces, whatever the comment's age.
-The wave marker is `.claude/super-board/omp-wave.pid`.
+The wave marker is `.claude/super-board/omp-wave.pid`. Review lanes serialize across
+the wave, one merge gate at a time (the same execution-side guard as the workflow
+backend); Build and QA lanes still run in parallel under `max_workers`.
 
 ## Required GitHub evidence and a paused run
 
