@@ -258,6 +258,8 @@ Repeat until a done condition or halt gate fires:
    usage fallback; Claude availability never proves Codex availability.
    Pass hydrated bodies into the wave. Workers recheck their lane before writes
    and activate conditional helpers only after `--require <exact-name>` passes.
+   An exit 10 on that per-helper check means the helper is unavailable: skip it
+   and continue inline; it never halts the lane.
    Untyped Ready cards conservatively check bug and feature chains before
    classification. Existing docs/ux/tests/refactor rows keep their chain; check
    any proposed new label chain before writing that label.

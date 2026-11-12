@@ -6,11 +6,14 @@ array carries number, status, labels and literal issue body; hydrate absent
 bodies read-only with the guarded GitHub reader (`--hydrate` does this).
 For a worker boundary add `--lane build|qa|review`. Before using a conditional
 or custom helper add `--require <exact-name>`; repeat when the execution host changes.
+A `--require` exit 10 means that helper is unavailable: skip it and continue inline;
+it never halts the lane. Only the initial readiness check (without `--require`)
+halts on exit 10.
 
 Load `resolved_path` files from the JSON report. Use only its declared fallback
-IDs and source instructions. Exit 10 names missing required skills: return
-`status=halted`, detail beginning `skills-readiness:`, preserve card state,
-claims, worktrees and approval evidence, repair files and restart explicitly.
+IDs and source instructions. Exit 10 from the initial readiness check names missing
+required skills: return `status=halted`, detail beginning `skills-readiness:`, preserve
+card state, claims, worktrees and approval evidence, repair files and restart explicitly.
 Exit 64 means malformed input/catalog; halt and repair it. GitHub read exit 79
 keeps its existing halt policy. Verification-readiness remains exit 9.
 

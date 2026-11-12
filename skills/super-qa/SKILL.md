@@ -546,14 +546,16 @@ The worker (per `references/iteration-preamble.md`) must load and follow:
 - `testing-strategy` — coverage judgment per component type, and what to skip.
   Consult it for *what is worth testing*; it does not pick the layer. The
   localisation ladder in `references/iteration-preamble.md` picks the layer.
-- `vitest` — mechanics for unit and integration tests in a TS/JS repo. 19
-  references (`core-expect`, `features-mocking`, `features-coverage`,
-  `core-hooks`, `advanced-vi`).
-- `playwright-best-practices` — when writing or refactoring a spec. Reference
-  its `core/locators.md` (data-testid first, `getByRole` fallback),
+- `vitest` — conditional: mechanics for unit and integration tests in a TS/JS repo.
+  19 references (`core-expect`, `features-mocking`, `features-coverage`,
+  `core-hooks`, `advanced-vi`). When the host has no `vitest` skill, continue
+  inline and never halt.
+- `playwright-best-practices` — conditional: when writing or refactoring a spec.
+  Reference its `core/locators.md` (data-testid first, `getByRole` fallback),
   `core/fixtures-hooks.md` (custom fixtures for auth, pre-test seeding, teardown),
   `core/test-data.md` (test data factories), and `core/page-object-model.md` (POM for
-  reusable interactions). Keep specs reusable as the suite grows.
+  reusable interactions). Keep specs reusable as the suite grows. If the host has
+  no such skill, continue inline and never halt.
 
 ## Coexistence with `/super-build`
 

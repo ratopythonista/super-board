@@ -513,7 +513,7 @@ Final lane result: write the JSON object (no prose) to {output_path} and also ma
 else:
     adaptation = f'{backend.label} adaptation: do not launch Claude or other sub-agents. Perform preflight, classification, independent review and truth-check duties inline. This changes the execution host, never the evidence requirements, confidence threshold or merge policy.'
 prompt = f'''Run {skill} for issue #{card['number']} as a {backend.label} lane worker.
-First operation: recheck .claude/bin/super-board-skills-ready.py --root {root} --host {backend.name} --cards - --lane {args.lane} with the Card JSON below as a one-element stdin array, before worktree creation, classification or lifecycle writes. Exit 10 means status=halted, detail=skills-readiness:, preserve all state. Load resolved_path files and only declared fallback IDs from the report. Before activating any conditional helper, repeat with --require <exact-name>.
+First operation: recheck .claude/bin/super-board-skills-ready.py --root {root} --host {backend.name} --cards - --lane {args.lane} with the Card JSON below as a one-element stdin array, before worktree creation, classification or lifecycle writes. Exit 10 means status=halted, detail=skills-readiness:, preserve all state. Load resolved_path files and only declared fallback IDs from the report. Before activating any conditional helper, repeat with --require <exact-name>; if that exits 10, the helper is unavailable: skip it, continue inline, and never return halted for it (only the initial readiness recheck halts on exit 10).
 Resolved skill report: {json.dumps(skills)}
 Config: {config_path}
 Card: {json.dumps(card)}
@@ -735,6 +735,7 @@ try:
             sys.exit(child.returncode if child.returncode in (9, 10, 79) else 1)
         parsed = choose_result(backend.final_messages(run, stdout))
         evidence_status['status'] = parsed['status']
+        last_detail = parsed['detail']
         print(json.dumps(parsed))
         sys.exit(10 if parsed['status'] == 'halted' and parsed['detail'].startswith('skills-readiness:')
                  else 9 if parsed['status'] == 'halted' and parsed['detail'].startswith('verification-readiness:')

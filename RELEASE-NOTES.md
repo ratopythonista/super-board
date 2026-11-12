@@ -49,6 +49,9 @@ OMP becomes a first-class host and lane backend (ADR-0031, #94).
   stderr and resolved `meta.json` to
   `.claude/super-board/rejected/lane-diagnostics-<lane>-<card>-<pid>/` before deleting the
   temp dir, and the wave names that path in the detail (#104).
+- 🐛 **A missing conditional helper no longer halts the lane.** `--require <name>` exit 10
+  only means that optional helper is unavailable; the worker skips it and continues inline.
+  Only the initial readiness recheck halts on a missing required skill (#104).
 - 🐛 **The size gate counts product lines.** `merge_policy.auto_max_lines` (400) now ignores
   `docs/**`, so the QA evidence the Tester must commit to the branch (logs and screenshots under
   `docs/super-board/runs/issue-<N>-qa-v*/`) no longer sends a small product PR to the human gate
