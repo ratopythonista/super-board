@@ -79,7 +79,13 @@ first JSON object in prose, then scans the NDJSON assistant messages newest firs
 so an aborted `task` subagent's last text is skipped instead of inherited. A
 rejected payload is kept at
 `.claude/super-board/rejected/lane-result-rejected-<lane>-<card>.{json,txt}`, and
-the failure names that path plus every schema path that missed. Exit 3 is `halted`/`cost-cap`, a
+the failure names that path plus every schema path that missed. A failed or halted
+lane also keeps its OMP session, stderr and `meta.json` at
+`.claude/super-board/rejected/lane-diagnostics-<lane>-<card>-<pid>/`, and the wave
+names that path in the detail. A lane that returns no valid result **and leaves the
+card in the same column** is retried once by the wave, with the same claim and
+worktree; a lane that moved the card or returned a valid `failed` result is never
+retried. Exit 3 is `halted`/`cost-cap`, a
 deadline is `halted`/`time-cap`; both preserve card, claim, worktree and PR.
 The run also writes `lanes.jsonl` beside `--output` (or under
 `<paths.runs_dir>/<date>-<config>-<backend>/`): one record per lane and one for the

@@ -283,6 +283,45 @@ RC=0; SB_OMP_TEST_INVALID=1 SB_OMP_TEST_BOARD=Ready wave_board >"$T/out" || RC=$
 [ "$RC" -eq 0 ] && jq -e '.cards[0].column == "Ready" and (.cards[0].detail | contains("board at Ready"))' "$T/out" >/dev/null \
   || fail 'an unmoved card must report the board column without a fake move'
 
+# A lane that returns no result and leaves the board untouched is retried once.
+rm -f "$SB_OMP_TEST_LOG.attempts"
+CARDS='[{"number":1,"status":"Ready"}]'
+: > "$SB_OMP_TEST_LOG"
+RC=0; SB_OMP_TEST_INVALID_ONCE=1 SB_OMP_TEST_BOARD=Ready wave_board >"$T/out" || RC=$?
+[ "$RC" -eq 0 ] && jq -e '.cards[0].finalStatus == "advanced" and (.cards[0].lanesRun | contains("build:failed → build:advanced"))' "$T/out" >/dev/null \
+  || fail 'a no-result lane with an unmoved board must be retried once and advance'
+[ "$(grep -c '"lane": "build"' "$SB_OMP_TEST_LOG")" -eq 2 ] || fail 'the retry must run the build lane exactly once more'
+jq -e '.cards[0].detail | contains("retry after build returned no result")' "$T/out" >/dev/null \
+  || fail 'the wave result must name the retry'
+
+# A lane that moved the board did observable work and is never retried.
+rm -f "$SB_OMP_TEST_LOG.attempts"
+: > "$SB_OMP_TEST_LOG"
+RC=0; SB_OMP_TEST_INVALID=1 SB_OMP_TEST_BOARD=QA wave_board >"$T/out" || RC=$?
+[ "$RC" -eq 0 ] && jq -e '.cards[0].finalStatus == "failed"' "$T/out" >/dev/null || fail 'a moved board stays failed'
+[ "$(grep -c '"lane": "build"' "$SB_OMP_TEST_LOG")" -eq 1 ] || fail 'a board move must not retry'
+
+# An explicit failed result is a decision, not a trashed result: no retry.
+rm -f "$SB_OMP_TEST_LOG.attempts"
+: > "$SB_OMP_TEST_LOG"
+RC=0; SB_OMP_TEST_STATUS=failed SB_OMP_TEST_BOARD=Ready wave_board >"$T/out" || RC=$?
+[ "$RC" -eq 0 ] && jq -e '.cards[0].finalStatus == "failed"' "$T/out" >/dev/null || fail 'an explicit failed result stays failed'
+[ "$(grep -c '"lane": "build"' "$SB_OMP_TEST_LOG")" -eq 1 ] || fail 'an explicit failed result must not retry'
+
+# A failed lane keeps its OMP session and stderr, and the wave names the path.
+rm -rf .claude/super-board/rejected
+rm -f "$SB_OMP_TEST_LOG.attempts"
+: > "$SB_OMP_TEST_LOG"
+RC=0; SB_OMP_TEST_INVALID=1 SB_OMP_TEST_BOARD=QA wave_board >"$T/out" || RC=$?
+DIAG=$(find .claude/super-board/rejected -maxdepth 1 -type d -name 'lane-diagnostics-build-1-*' | head -1)
+[ -n "$DIAG" ] || fail 'a failed lane must preserve diagnostics'
+[ -f "$DIAG/meta.json" ] && [ -f "$DIAG/stderr.txt" ] && [ -f "$DIAG/session/fake-session.jsonl" ] \
+  || fail 'diagnostics must include meta, stderr and the OMP session'
+jq -e '.status == "failed" and .lane == "build" and .card == 1' "$DIAG/meta.json" >/dev/null \
+  || fail 'diagnostics meta must describe the failure'
+jq -e '.cards[0].detail | test("diagnostics preserved at .*lane-diagnostics-build-1-")' "$T/out" >/dev/null \
+  || fail 'wave result must name the diagnostics path'
+
 # Without a readable board the wave halts and keeps the entry column, named as unread.
 RC=0; SB_OMP_TEST_INVALID=1 SB_OMP_TEST_BOARD_FAIL=1 wave_board >"$T/out" || RC=$?
 [ "$RC" -eq 79 ] && jq -e '.halted and .cards[0].finalStatus == "halted" and .cards[0].column == "Ready"' "$T/out" >/dev/null \

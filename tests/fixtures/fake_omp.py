@@ -59,6 +59,9 @@ if 'Grade complexity' in prompt:
 
 card = json.loads(re.search(r'^Card: (.+)$', prompt, re.M).group(1))
 lane = re.search(r'Run super-(build|qa|review)', prompt).group(1)
+attempts_file = Path(log_path + '.attempts')
+attempts = int(attempts_file.read_text()) if attempts_file.exists() else 0
+attempts_file.write_text(str(attempts + 1))
 active = bump(1)
 log(dict(args=args, prompt=prompt, number=card['number'], lane=lane, active=active,
          model=flag('--model'), tools=flag('--tools'),
@@ -75,6 +78,8 @@ status = os.environ.get('SB_OMP_TEST_STATUS', 'advanced')
 column = {'build': 'QA', 'qa': 'Review', 'review': 'Done'}[lane] if status == 'advanced' else card['status']
 if os.environ.get('SB_OMP_TEST_RESULT'):
     result = os.environ['SB_OMP_TEST_RESULT']
+elif os.environ.get('SB_OMP_TEST_INVALID_ONCE') and attempts == 0:
+    result = 'not json'
 elif os.environ.get('SB_OMP_TEST_INVALID'):
     result = 'not json'
 else:

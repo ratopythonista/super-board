@@ -466,13 +466,22 @@ def board_column(number):
                   f'board helper exited {completed.returncode}')
     return None, reason, False
 
-def run_card(card):
-    complexity, stop = grade(card)
-    if stop:
-        halted.set()
-        return dict(number=card['number'], finalStatus='halted', lastLane='none', column=card['status'],
-                    detail='run halted while grading; preserve claims and worktrees', prUrl=None,
-                    priorFindings=None, lanesRun='none:halted')
+def diagnostics_path(text):
+    """The path the lane printed to stderr when it preserved a failed session."""
+    marker = 'diagnostics preserved at '
+    for line in reversed((text or '').splitlines()):
+        if marker in line:
+            return line.split(marker, 1)[1].strip()
+    return None
+
+def run_card(card, retried=False, complexity=None):
+    if complexity is None:
+        complexity, stop = grade(card)
+        if stop:
+            halted.set()
+            return dict(number=card['number'], finalStatus='halted', lastLane='none', column=card['status'],
+                        detail='run halted while grading; preserve claims and worktrees', prUrl=None,
+                        priorFindings=None, lanesRun='none:halted')
     labels = [str(label).lower() for label in card.get('labels', [])]
     first = card.get('lane') or ('qa' if 'qa' in labels else 'build')
     entry = 'review' if card['status'] == 'Review' else 'qa' if card['status'] == 'QA' else first
@@ -504,7 +513,8 @@ def run_card(card):
                                             '--card', json.dumps(current), '--lane', lane, explicit[0],
                                             '--tier', args.tier, '--evidence', str(lanes_path)]
                                            + (['--complexity', complexity] if complexity else []),
-                                           stdout=subprocess.PIPE, text=True, start_new_session=True)
+                                           stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                           text=True, start_new_session=True)
                 active.add(process)
                 lock.write_text(f'PID={process.pid}\nLANE={lane}\nBACKEND={backend}\nSTARTED={time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}\n')
             except OSError as error:
@@ -519,8 +529,9 @@ def run_card(card):
                                     detail=f'could not start {lane} lane: {error}'))
                 break
         preserve_lock = False
+        stderr = ''
         try:
-            stdout, _ = process.communicate()
+            stdout, stderr = process.communicate()
             if process.returncode in (9, 10):
                 preserve_lock = True
                 (readiness_halted if process.returncode == 9 else skills_halted).set()
@@ -552,6 +563,12 @@ def run_card(card):
                     halted.set()
                 result = dict(status='halted' if read_halted or process.returncode in (9, 10, 79) or halted.is_set() else 'failed',
                               column=board or current['status'], detail=detail)
+                result['_retryable'] = (not read_halted and not halted.is_set()
+                                        and process.returncode not in (9, 10, 79)
+                                        and board is not None and board == current['status'])
+            diag = diagnostics_path(stderr)
+            if diag and result['status'] != 'advanced':
+                result['detail'] += f'; diagnostics preserved at {diag}'
             with mutex:
                 if result['status'] == 'halted':
                     halted.set()
@@ -572,10 +589,22 @@ def run_card(card):
             except FileNotFoundError:
                 pass
     last = history[-1]
-    return dict(number=card['number'], finalStatus=last['status'], lastLane=last['lane'],
-                column=last['column'], detail=last['detail'], prUrl=last.get('prUrl'),
-                priorFindings=last.get('priorFindings'),
-                lanesRun=' → '.join(f"{item['lane']}:{item['status']}" for item in history))
+    summary = dict(number=card['number'], finalStatus=last['status'], lastLane=last['lane'],
+                   column=last['column'], detail=last['detail'], prUrl=last.get('prUrl'),
+                   priorFindings=last.get('priorFindings'),
+                   lanesRun=' → '.join(f"{item['lane']}:{item['status']}" for item in history))
+    # A lane that returned no usable result and left the board untouched did no
+    # observable work. Retry it once, with the same claim and worktree; a lane that
+    # moved the board or returned a valid failure is never retried.
+    if last.get('_retryable') and not retried and not halted.is_set():
+        retry_card = dict(card, status=current['status'])
+        retry_card['lane'] = last['lane']
+        retry = run_card(retry_card, retried=True, complexity=complexity)
+        retry['detail'] = (f"retry after {last['lane']} returned no result "
+                           f"({last['detail']}); " + retry['detail'])
+        retry['lanesRun'] = summary['lanesRun'] + ' → ' + retry['lanesRun']
+        return retry
+    return summary
 
 try:
     if backend == 'omp':

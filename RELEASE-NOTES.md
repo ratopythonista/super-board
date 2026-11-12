@@ -41,6 +41,14 @@ OMP becomes a first-class host and lane backend (ADR-0031, #94).
   that missed (`$.branch: required key missing`, `$.note: unexpected key`). The payload is kept
   at `.claude/super-board/rejected/lane-result-rejected-<lane>-<card>.{json,txt}` and the
   failure detail — therefore `wave-result.json` — cites that file (#100).
+- 🐛 **A no-result lane is retried once when it did no observable work.** If a lane
+  returns no usable result and the board still shows the column it started in, the wave
+  reruns that lane once with the same claim and worktree. A lane that moved the card, or
+  returned a valid `failed`, is never retried, so a real failure is not masked (#104).
+- 🐛 **A failed lane keeps its session for diagnosis.** The lane copies its OMP session,
+  stderr and resolved `meta.json` to
+  `.claude/super-board/rejected/lane-diagnostics-<lane>-<card>-<pid>/` before deleting the
+  temp dir, and the wave names that path in the detail (#104).
 - 🐛 **The size gate counts product lines.** `merge_policy.auto_max_lines` (400) now ignores
   `docs/**`, so the QA evidence the Tester must commit to the branch (logs and screenshots under
   `docs/super-board/runs/issue-<N>-qa-v*/`) no longer sends a small product PR to the human gate

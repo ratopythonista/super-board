@@ -422,7 +422,10 @@ if not explicit and config.get('usage_fallback', 'none') != backend.name:
     fail(f'{backend.label} fallback refused: usage_fallback is not "{backend.name}" in {config_path}; pass {flag} for an explicit {backend.label} run.', 78)
 
 column = card['status']
+last_detail = ''
 def result(status, detail):
+    global last_detail
+    last_detail = detail
     print(json.dumps({'status': status, 'column': column, 'detail': detail}))
 
 readiness = script_path.with_name('super-board-verification-ready.py')
@@ -469,6 +472,35 @@ skill = {'build': 'super-build', 'qa': 'super-qa', 'review': 'super-review'}[arg
 section = {'build': 'Builder', 'qa': 'Tester', 'review': 'Reviewer'}[args.lane]
 temporary = tempfile.mkdtemp(prefix=f'super-board-{backend.name}-')
 output_path = Path(temporary) / 'result.json'
+child = None
+run = None
+stderr = ''
+evidence_status = {'status': 'failed'}
+
+def preserve_diagnostics():
+    """Keep the OMP session, stderr and resolved model of a failed lane.
+
+    The temp session dir is deleted on exit, so a worker that ends before writing
+    its result would otherwise leave only its last text. The wave names this path
+    in `wave-result.json`; the next failure is diagnosable.
+    """
+    directory = (root / '.claude/super-board/rejected'
+                 / f'lane-diagnostics-{args.lane}-{card["number"]}-{os.getpid()}')
+    shutil.rmtree(directory, ignore_errors=True)
+    directory.mkdir(parents=True, exist_ok=True)
+    session_dir = run['session_dir'] if run else None
+    meta = dict(lane=args.lane, card=card['number'], model=model,
+                returncode=child.returncode if child is not None else None,
+                status=evidence_status['status'], detail=last_detail,
+                at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))
+    (directory / 'meta.json').write_text(json.dumps(meta, indent=2) + '\n')
+    (directory / 'stderr.txt').write_text(stderr or '')
+    if session_dir is not None and session_dir.is_dir():
+        shutil.copytree(session_dir, directory / 'session')
+    model_file = run['model_file'] if run else None
+    if model_file is not None and model_file.is_file():
+        shutil.copy2(model_file, directory / 'model.json')
+    return directory
 if backend.name == 'omp':
     bot = ((config.get('notifications') or {}).get('bot_identity') or config.get('bot_identity') or '')
     identity = f'`{bot}`' if bot else 'the authenticated `gh api user --jq .login` login'
@@ -716,5 +748,11 @@ finally:
             append_jsonl(run['evidence'], lane_evidence(run, stdout, evidence_status['status']))
         except OSError:
             pass   # evidence never blocks the lane result
+    if evidence_status['status'] in ('failed', 'halted'):
+        try:
+            path = preserve_diagnostics()
+            print(f'[lane] diagnostics preserved at {path}', file=sys.stderr)
+        except OSError as error:
+            print(f'[lane] could not preserve diagnostics: {error}', file=sys.stderr)
     shutil.rmtree(temporary, ignore_errors=True)
 PY
