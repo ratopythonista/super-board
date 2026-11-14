@@ -64,6 +64,9 @@ Two security skills come with every install, and they stay separate:
 Claude Code's built-in `/security-review` is left as it is.
 
 Running from Codex, OpenCode or OMP? See [supported hosts](docs/hosts.md) for tested versions, sign-in and gaps.
+Installing from a fork into a Python project on OMP? See [OMP host + Python project](docs/omp-python.md) for the
+tag install, the board config and the lane skills. The development flow itself is drawn at
+[/flow/](https://ratopythonista.github.io/super-board/flow/).
 
 Optional post-run learning can delegate an already installed `calibrate` skill after
 verified selected work completes. It applies only to explicitly permitted existing
