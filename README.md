@@ -27,6 +27,24 @@
 <p align="center"><a href="https://erictechpro.github.io/super-board/skill-map/"><img src="docs/assets/skill-map.png" alt="The super-board skill map: open the interactive version" width="100%"></a></p>
 <p align="center"><sub>The skill map. Click it for the live version: zoom, pan, open any node.</sub></p>
 
+## This fork
+
+`ratopythonista/super-board` is a fork of [EricTechPro/super-board](https://github.com/EricTechPro/super-board)
+with two goals:
+
+1. **OMP as an execution host.** Lanes run as headless `omp -p` instead of Claude's Workflow tool: host detection,
+   model roles, per-lane cost/time caps and a guard extension.
+2. **Python project structures.** A verify chain on `uv`/`ruff`/`pytest`, a Python pre-flight for the board, and a
+   published test skill ([`pytest-fasthtml`](https://github.com/ratopythonista/skills)).
+
+| Read | What it covers |
+|---|---|
+| [Development flow](docs/flow.md) | intake → contract → factory → merge gate → acceptance, with figures |
+| [OMP lane](docs/omp-lane.md) | what one lane is, the model ladder, caps, guards, evidence |
+| [OMP + Python](docs/omp-python.md) | install from this fork and configure a Python board |
+
+Everything below is the upstream README: the pack, its skills and how it works on Claude Code.
+
 ## Install
 
 Before you start:
@@ -64,9 +82,7 @@ Two security skills come with every install, and they stay separate:
 Claude Code's built-in `/security-review` is left as it is.
 
 Running from Codex, OpenCode or OMP? See [supported hosts](docs/hosts.md) for tested versions, sign-in and gaps.
-Installing from a fork into a Python project on OMP? See [OMP host + Python project](docs/omp-python.md) for the
-tag install, the board config and the lane skills. The development flow itself is drawn at
-[/flow/](https://ratopythonista.github.io/super-board/flow/).
+This fork installs from its own tag and configures a Python board — see [This fork](#this-fork) above.
 
 Optional post-run learning can delegate an already installed `calibrate` skill after
 verified selected work completes. It applies only to explicitly permitted existing
