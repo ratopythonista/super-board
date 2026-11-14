@@ -4,6 +4,7 @@ name: pages
 #   /                    diagrams/index.html (landing)
 #   /assets/             diagrams/assets/*.png (page-card screenshots)
 #   /skill-map/          diagrams/visual/skill-map.html
+#   /flow/               diagrams/flow/index.html (development flow: OMP host + Python lane)
 #   /skill-map/examples/ diagrams/visual/examples/ (/visual example pages + thumbnails)
 #   /onboarding/         diagrams/onboarding/index.html (setup simulator)
 #   /impeccable/         diagrams/impeccable/index.html
@@ -38,10 +39,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: assemble site
         run: |
-          mkdir -p _site/assets _site/skill-map _site/onboarding _site/impeccable _site/pstack _site/mattpocock _site/security-audit _site/sdlc-template _site/writing-standard
+          mkdir -p _site/assets _site/skill-map _site/onboarding _site/impeccable _site/pstack _site/mattpocock _site/security-audit _site/sdlc-template _site/writing-standard _site/flow
           cp diagrams/index.html _site/index.html
           cp diagrams/assets/*.png _site/assets/
           cp diagrams/visual/skill-map.html _site/skill-map/index.html
+          cp diagrams/flow/index.html _site/flow/index.html
           cp -R diagrams/visual/examples _site/skill-map/examples
           cp diagrams/onboarding/index.html _site/onboarding/index.html
           cp diagrams/impeccable/index.html _site/impeccable/index.html
