@@ -31,11 +31,11 @@
   // only; the dispatcher refuses to run (exit 78) unless set here.
   "worker_backend": "workflow",
 
-  // Agent host this project runs on: "claude" | "codex" | "opencode". Separate from
+  // Agent host this project runs on: "claude" | "codex" | "opencode" | "omp". Separate from
   // worker_backend. Onboard and setup's fix ALWAYS write it (setup fills a missing key
   // from --host and never replaces a set one); setup's check flags any other value.
   // `super-board-host.sh --config <this file>` uses it only when SUPER_BOARD_HOST and
-  // every env sign (Codex ids, OPENCODE, CLAUDECODE) are absent. See docs/hosts.md.
+  // every env sign (OMP, Codex ids, OPENCODE, CLAUDECODE) are absent. See docs/hosts.md.
   "host": "claude",
 
   // Optional post-completion adapter; never bundles or installs the external skill.
@@ -66,6 +66,41 @@
     // Codex ladder. `--codex=<model>` wins; absent/null lets the ladder pick
     // (run tier x card grade, see scripts/super-board-codex-lane.sh).
     "model": null
+  },
+
+  // Optional OMP lane settings. Used by explicit `run --omp`; never selects the
+  // host by itself. `model` pins every lane (including Review, which still needs
+  // the explicit flag); otherwise the ladder picks @easy/@medium/@hard and
+  // Review always uses @review. modelRoles values are arrays of selectors: OMP
+  // takes the first available, retry.fallbackChains covers request failures
+  // ([] = fail closed). limits are per lane and become --max-cost/--max-time.
+  // See docs/hosts.md and ADR-0031.
+  "omp": {
+    "model": null,
+    "modelRoles": {
+      "classify": ["opencode-go/claude-haiku-5-5:low", "opencode-go/gpt-6-luna:low"],
+      "easy":     ["opencode-go/deepseek-v4.1-flash:low", "opencode-go/gpt-6-luna:low"],
+      "medium":   ["opencode-go/deepseek-v4.1-flash:high", "opencode-go/gpt-6-luna:medium"],
+      "hard":     ["opencode-go/deepseek-v4.1-flash:max", "opencode-go/gpt-6-luna:max"],
+      "review":   ["opencode-go/deepseek-v4.1-flash:max"],
+      "task":     ["opencode-go/deepseek-v4.1-flash:max"]
+    },
+    "retry": {
+      "fallbackChains": {
+        "classify": ["opencode-go/gpt-6-luna:low"],
+        "easy":     ["opencode-go/gpt-6-luna:low"],
+        "medium":   ["opencode-go/gpt-6-luna:medium"],
+        "hard":     ["opencode-go/gpt-6-luna:max"],
+        "review":   [],
+        "task":     []
+      }
+    },
+    "limits": {
+      "classify": {"max_cost": 0.05, "max_time": "3m"},
+      "build":    {"max_cost": 0.50, "max_time": "30m"},
+      "qa":       {"max_cost": 0.30, "max_time": "20m"},
+      "review":   {"max_cost": 0.75, "max_time": "30m"}
+    }
   },
 
   "target": {
@@ -130,19 +165,21 @@
   "merge_policy": {
     // "auto" (default on host "claude" or with no host key): normal changes
     // merge on a clean review.
-    // Non-Claude default: when `host` is "codex" or "opencode" (any value but
+    // Non-Claude default: when `host` is "codex", "opencode" or "omp" (any value but
     // "claude") and this key is absent, every PR waits for a human (gate exits 7,
     // "host <x>: auto-merge not turned on"). Set "auto" explicitly to merge there.
     // "human": every PR requires human approval (gate exits 7 → Blocked).
     // A human can merge it or approve the pinned request for the next wave.
     // Onboard recommends "human" when base_branch is production-detected.
     "default": "auto",
-    // Small PRs by design. A PR with more changed lines (additions +
+    // Small PRs by design. A PR with more changed PRODUCT lines (additions +
     // deletions) than this waits for a human: Blocked 🙋 "big PR — please
-    // review". Default 400; 0 = no size cap. Files matching size_exclude and
-    // migration files (migrations.globs) do not count; migration lines are
-    // reported separately. Builders keep PRs under this cap and lint flags
-    // tickets likely to exceed it (references/lint.md → "Too big").
+    // review". Default 400; 0 = no size cap. Files matching size_exclude,
+    // documentation and QA evidence under docs/ (the Tester commits screenshots
+    // and logs there so the comment images render) and migration files
+    // (migrations.globs) do not count; migration lines are reported separately.
+    // Builders keep PRs under this cap and lint flags tickets likely to exceed
+    // it (references/lint.md → "Too big").
     "auto_max_lines": 400,
     // Globs left out of the size count. Setting this replaces the defaults
     // below; [] counts every file.
@@ -152,7 +189,9 @@
       "**/Gemfile.lock", "**/composer.lock", "**/go.sum", "**/Podfile.lock", "**/pubspec.lock",
       "**/generated/**", "**/__generated__/**", "**/*.generated.*", "**/*.gen.*",
       "**/*.min.js", "**/*.min.css", "**/*.map", "**/*.pb.go", "**/*_pb2.py",
-      "**/__snapshots__/**", "**/*.snap"
+      "**/__snapshots__/**", "**/*.snap",
+      // documentation and QA evidence (docs/super-board/runs/issue-<N>-qa-v*/)
+      "**/docs/**"
     ],
     // ALWAYS human, whatever `default` says. A PR matching ANY label, path glob
     // or keyword (case-insensitive, searched in the diff's ADDED lines only) of
@@ -305,8 +344,9 @@
   // planner picks every Ready card whose `## Blocked by` issues have all closed,
   // plus whatever is already in flight. The workflow runtime caps CONCURRENT
   // agents at min(16, cpus-2) and queues the rest, so a 19-card wave is normal.
-  // Codex waves also cap concurrent cards at a positive max_workers; absent/0
-  // uses max(1, min(16, cpus-2)), with each card's lanes running sequentially.
+  // Codex and OMP waves also cap concurrent cards at a positive max_workers; absent/0
+  // uses max(1, min(16, cpus-2)) for Codex and 4 for OMP, with each card's lanes
+  // running sequentially.
   //
   // Set it only to deliberately throttle a machine. A fixed cap used to do the
   // wave sizing, and it sized it badly: on a board where 23 of 32 Ready cards

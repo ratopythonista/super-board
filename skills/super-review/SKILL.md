@@ -124,6 +124,11 @@ If the input is ambiguous, default to reviewing the current branch against its u
    - If the user explicitly authorizes Super Review to fix, make the smallest safe patch, verify it, and clearly report that review also changed code.
 
 5. **Verify evidence**
+   - **CI checks:** read them through the helper, never with `gh pr checks`:
+     `python3 .claude/bin/super-board-github-read.py --kind checks -- pr view <PR> --json statusCheckRollup --jq .statusCheckRollup`.
+     `[]` means the repository has no CI configured — that is green, not missing evidence.
+     Put `CI: nenhum check configurado` on the report's `Did:` line. A non-empty rollup is
+     evidence to judge; a failing check is a finding, not a read halt.
    - Run the smallest meaningful verification for the touched area.
    - Prefer targeted tests first; run broader suites when the change crosses boundaries.
    - For upload/import flows, do not call it complete from UI success or HTTP 200 alone; verify jobs reach terminal state and destination records are saved.
@@ -159,6 +164,7 @@ Next: <builder | qa | Eric | none>
 
 - Owner: `builder` (Super Build) · `qa` (Super QA) · `ui` (UI ticket; a human runs
   `/ui-refine-loop`) · `Eric` (human gate).
+- When the checks read is empty, the `Did:` line carries `CI: nenhum check configurado`.
 - Mark `blocker` or `should fix` in the Finding cell. Over-engineering is always `should fix`.
 - Deepening opportunities filed with `super-review-file-refactor.sh` get a row with Status
   `filed #<issue>`.
@@ -357,8 +363,8 @@ two complete builds. In order, no shortcuts:
    The gate owns the merge decision (config `merge_policy`, `migrations`):
    - **Exit 9 — verification-readiness.** Halt the run; preserve card, approval, claims, and worktree. Configure `verify_commands` with the owning project's real checks and restart explicitly. No bounce to Build, rebase retry, approval request, or bare merge.
    - **Exit 7 — a human merges.** `merge_policy` matched (money / auth / schema label,
-     path or added-line keyword; a diff over `auto_max_lines`, default 400 — "big PR — please
-     review"; `default: "human"`). `schema` means destructive only (DROP / TRUNCATE / RENAME);
+     path or added-line keyword; a diff over `auto_max_lines`, default 400 product lines — docs/ and
+     the other `size_exclude` globs do not count — "big PR — please review"; `default: "human"`). `schema` means destructive only (DROP / TRUNCATE / RENAME);
      an additive migration follows `migrations.allowed_envs`, and a live DB is always human.
      Card → **Blocked** with the 🙋 template: `Why blocked` quotes the gate's
      `human-gate:` lines; `To unblock` = review PR #<P> and merge it yourself, OR comment

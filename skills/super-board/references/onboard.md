@@ -9,7 +9,7 @@ Invoked as `/super-board onboard` (get.sh / install.sh) or `/super-board:super-b
 ## Host-visible skill checks
 
 Checks use `.claude/bin/super-board-skills-ready.py --profile setup --host
-<claude|codex>` and show `helper_readiness`: exact files, declared fallbacks,
+<claude|codex|omp>` and show `helper_readiness`: exact files, declared fallbacks,
 optional skips and missing names. Setup checks the unconditional union; a
 selected card may need fewer helpers. Node or `skills-lock.json` never proves
 readiness. `check` and dispatch install nothing. Explicit `fix` retains helper
@@ -302,7 +302,7 @@ Write it atomically (temp file + rename) after every answer. A halt never loses 
        (Recommended) / I merge everything]; production base: the order flips, and robot-merges
        sets merge_policy.allow_auto_on_production: true (run.md's guard needs it).
        → merge_policy.default "auto" | "human"; auto_max_lines 400 (lockfiles, generated,
-         snapshots, migration SQL not counted); always_human = schema defaults (money, auth,
+         snapshots, docs/evidence, migration SQL not counted); always_human = schema defaults (money, auth,
          destructive schema). A matching PR parks in Blocked with 🙋.
     b. "Push guard" — "Block pushing straight to main?" [Yes (Recommended for a repo with
        commits) / No]. Skipped when settings.json already wires guard-protected-push.py. Script
@@ -368,10 +368,10 @@ Write it atomically (temp file + rename) after every answer. A halt never loses 
    │    │    {type: repo | repo+url}, repo, base_branch, timezone, columns (the seven), labels,
    │    │    paths, merge_policy, migrations, collect (incl. custom), notifications {channel:
    │    │    "session", bot_identity}, worker_backend "workflow", host (always: `bash $SB/super-board-host.sh`;
-   │    │    on exit 65 ask claude/codex/opencode), verify_commands (non-blank project checks). No `variant`.
+   │    │    on exit 65 ask claude/codex/opencode/omp), verify_commands (non-blank project checks). No `variant`.
    │    ├─ .claude/super-board/active ← <slug>
    │    ├─ .gitignore += .claude/super-board/active, onboard-answers.json, onboard-staged/,
-   │    │    backup/, inflight/, migrations/, upgrade.json (all under .claude/super-board/)
+   │    │    backup/, inflight/, migrations/, rejected/, upgrade.json (all under .claude/super-board/)
    │    ├─ settings.json: super-board-settings.py allow … ; protect main →
    │    │    super-board-settings.py hooks .claude/settings.json <pack>/hooks/settings-protect-main.json
    │    ├─ AGENTS.md / CLAUDE.md: super-board-agents-md.py backup, then write --src <staged>

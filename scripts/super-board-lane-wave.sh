@@ -1,0 +1,650 @@
+#!/usr/bin/env bash
+# Dispatch an explicitly selected lane wave; stdout/--output matches the Claude
+# workflow's {cards:[summary...], halted} reconciliation contract.
+# Usage: --backend codex|omp --config f --cards '<JSON array>' --<backend>[=model]
+#        [--tier low|medium|high] [--output f]
+# `super-board-codex-wave.sh` and `super-board-omp-wave.sh` are wrappers for the
+# two backends. Unless one model is pinned (--<backend>=<model> or
+# <backend>.model), a cheap router grades each Ready card low/medium/high; the
+# lane launcher maps tier x grade through backend.LADDERS, or (OMP) resolves the
+# role in the board's modelRoles overlay.
+set -euo pipefail
+exec python3 - "${BASH_SOURCE[0]}" "$@" <<'PY'
+import argparse
+import importlib.util
+from concurrent.futures import ThreadPoolExecutor
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+
+def append_jsonl(path, record):
+    """Append one record atomically; grade and lane processes share the run's file."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    line = (json.dumps(record) + '\n').encode()
+    descriptor = os.open(path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o644)
+    try:
+        os.write(descriptor, line)
+    finally:
+        os.close(descriptor)
+
+def events(text):
+    for line in (text or '').splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(event, dict):
+            yield event
+
+def session_cost(directory):
+    """USD spent by the lane from OMP's session files, subagents included when
+    they share --session-dir. The files are the durable record; stdout is the
+    fallback for hosts that do not write one."""
+    total, seen = 0.0, False
+    try:
+        paths = list(Path(directory).rglob('*.jsonl'))
+    except OSError:
+        return None
+    for path in paths:
+        try:
+            stream = path.open()
+        except OSError:
+            continue
+        with stream:
+            for line in stream:
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(event, dict):
+                    continue
+                if event.get('type') == 'message':
+                    message = event.get('message') or {}
+                    if message.get('role') != 'assistant':
+                        continue
+                    value = ((message.get('usage') or {}).get('cost') or {}).get('total')
+                elif event.get('type') == 'model_usage':
+                    value = ((event.get('usage') or {}).get('cost') or {}).get('total')
+                else:
+                    continue
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    total += value
+                    seen = True
+    return round(total, 8) if seen else None
+
+def output_cost(text):
+    """USD from the NDJSON stream when no session file is available.
+
+    `agent_end.telemetry` already aggregates the messages, so it wins over the
+    per-message totals instead of being added to them."""
+    telemetry = None
+    messages_total, seen = 0.0, False
+    for event in events(text):
+        if event.get('type') == 'message_end':
+            message = event.get('message') or {}
+            value = ((message.get('usage') or {}).get('cost') or {}).get('total')
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                messages_total += value
+                seen = True
+        elif event.get('type') == 'agent_end':
+            value = (((event.get('telemetry') or {}).get('cost') or {}).get('estimatedUsd'))
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                telemetry = value if telemetry is None else telemetry + value
+    if telemetry is not None:
+        return round(telemetry, 8)
+    return round(messages_total, 8) if seen else None
+
+def resolved_identity(model_file, requested):
+    data = {}
+    if model_file:
+        try:
+            loaded = json.loads(Path(model_file).read_text())
+        except (OSError, ValueError):
+            loaded = None
+        if isinstance(loaded, dict):
+            data = loaded
+    role = data.get('role')
+    if isinstance(role, str) and role.strip():
+        role = role.strip().lstrip('@')
+    else:
+        role = requested[1:] if isinstance(requested, str) and requested.startswith('@') else None
+    provider = data.get('provider') if isinstance(data.get('provider'), str) else None
+    model = data.get('model') if isinstance(data.get('model'), str) else None
+    if model is None and isinstance(requested, str) and not requested.startswith('@'):
+        if '/' in requested:
+            provider = provider or requested.split('/', 1)[0]
+            model = requested.split('/', 1)[1]
+        else:
+            model = requested
+    thinking = data.get('thinking') if isinstance(data.get('thinking'), str) else None
+    return role, provider, model, thinking
+
+def grade_evidence(card, complexity, model_file, requested, stdout, session_dir):
+    cost = session_cost(session_dir)
+    if cost is None:
+        cost = output_cost(stdout)
+    role, provider, model, thinking = resolved_identity(model_file, requested)
+    return {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+            'card': card['number'], 'lane': 'classify', 'role': role, 'provider': provider,
+            'model': model, 'thinking': thinking, 'cost': cost,
+            'complexity': complexity}
+
+def default_run_dir(config, root, backend, config_path):
+    runs = Path(((config.get('paths') or {}).get('runs_dir') or 'docs/super-board/runs'))
+    if not runs.is_absolute():
+        runs = root / runs
+    day = time.strftime('%Y-%m-%d', time.localtime())
+    return runs / f'{day}-{config_path.stem}-{backend}'
+
+raw = sys.argv[2:]
+choice = None
+for index, arg in enumerate(raw):
+    if arg == '--backend' or arg.startswith('--backend='):
+        choice = arg.partition('=')[2] if '=' in arg else (raw[index + 1] if index + 1 < len(raw) else '')
+        del raw[index:index + (1 if '=' in arg else 2)]
+        break
+if choice not in ('codex', 'omp'):
+    print(('missing --backend' if choice is None else f'unknown wave backend {choice!r}')
+          + '; valid backends: codex, omp', file=sys.stderr)
+    sys.exit(64)
+backend = choice
+flag = '--' + backend
+
+parser = argparse.ArgumentParser(description=f'Dispatch one explicitly opted-in {backend} wave.')
+parser.add_argument('--config', required=True)
+parser.add_argument('--cards', required=True, help='planner card array JSON or JSON file')
+parser.add_argument('--output')
+parser.add_argument('--tier', default='medium', choices=['low', 'medium', 'high'])
+explicit = [arg for arg in raw if arg == flag or arg.startswith(flag + '=')]
+if len(explicit) != 1 or (explicit[0].startswith(flag + '=') and not explicit[0].partition('=')[2].strip()):
+    parser.error(f'exactly one explicit {flag}[=<non-empty-model>] is required')
+args = parser.parse_args([arg for arg in raw if arg not in explicit])
+output_path = Path(args.output).resolve() if args.output else None
+launcher = Path(sys.argv[1]).resolve().with_name('super-board-lane.sh')
+try:
+    config_path = Path(args.config).resolve()
+    config = json.loads(config_path.read_text())
+    cards = json.loads(args.cards if args.cards.lstrip().startswith('[') else Path(args.cards).read_text())
+    if not isinstance(config, dict) or not isinstance(cards, list):
+        raise ValueError('config must be an object; cards must be an array')
+    numbers = set()
+    for card in cards:
+        if (not isinstance(card, dict) or type(card.get('number')) is not int or card['number'] < 1
+                or card.get('status') not in ['Ready', 'QA', 'Review']):
+            raise ValueError('each card needs a positive number and Ready/QA/Review status')
+        if card['number'] in numbers:
+            raise ValueError('duplicate card number')
+        numbers.add(card['number'])
+        if card.get('lane') not in [None, 'build', 'qa', 'review']:
+            raise ValueError('invalid card lane')
+        if card['status'] == 'Ready' and card.get('lane') == 'review':
+            raise ValueError('a Ready card must enter build or qa')
+    workers = config.get('max_workers', 0)
+    if type(workers) is not int or workers < 0:
+        raise ValueError('max_workers must be a non-negative integer')
+    workers = workers or (4 if backend == 'omp' else max(1, min(16, (os.cpu_count() or 2) - 2)))
+    root = Path(subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()).resolve()
+    configured = (config.get(backend) or {}).get('model')
+    pinned = explicit[0].startswith(flag + '=') or (isinstance(configured, str) and configured.strip())
+except (OSError, ValueError, subprocess.CalledProcessError) as error:
+    parser.error(str(error))
+run_dir = output_path.parent if output_path else default_run_dir(config, root, backend, config_path)
+lanes_path = run_dir / 'lanes.jsonl'
+readiness = launcher.with_name('super-board-verification-ready.py')
+if subprocess.run([sys.executable, str(readiness), '--config', str(config_path)]).returncode:
+    result = json.dumps({'cards': [dict(number=c['number'], finalStatus='halted', lastLane='none',
+                                       column=c['status'], detail='verification-readiness: repair verify_commands and restart explicitly',
+                                       prUrl=None, priorFindings=None, lanesRun='none:halted') for c in cards], 'halted': True})
+    if output_path:
+        output_path.write_text(result + '\n')
+    print(result)
+    sys.exit(9)
+os.chdir(root)
+resolver_path = launcher.with_name('super-board-skills-ready.py')
+try:
+    spec = importlib.util.spec_from_file_location('skills_ready', resolver_path)
+    resolver = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(resolver)
+    resolver.hydrate(cards, root)
+    skills = resolver.report(root, backend, cards, home=os.environ.get('SUPER_BOARD_SKILLS_HOME'),
+                             catalog=os.environ.get('SUPER_BOARD_SKILLS_CATALOG'))
+except SystemExit as error:
+    code, detail = error.code, 'required GitHub reads halted while hydrating skills; preserve claims and worktrees'
+except (OSError, ValueError, TypeError, KeyError) as error:
+    code, detail = 64, 'skills-readiness: ' + str(error)
+else:
+    code = 0 if skills['ready'] else 10
+    detail = 'skills-readiness: missing ' + ', '.join(dict.fromkeys(e['name'] for e in skills['entries'] if e['status'] == 'missing'))
+if code:
+    result = json.dumps(dict(cards=[dict(number=c['number'], finalStatus='halted', lastLane='none', column=c['status'],
+                                       detail=detail, prUrl=None, priorFindings=None, lanesRun='none:halted') for c in cards], halted=True))
+    if output_path:
+        output_path.write_text(result + '\n')
+    print(result)
+    sys.exit(code)
+readiness_halted = threading.Event()
+skills_halted = threading.Event()
+halted = threading.Event()
+mutex = threading.RLock()
+# Review lanes serialize like the workflow backend's merge-race guard: one review
+# owns the merge gate at a time, and a transient shared halt cannot poison a peer.
+review_lock = threading.Lock()
+active = set()
+inflight = root / '.claude/super-board/inflight'
+marker = root / f'.claude/super-board/{backend}-wave.pid'
+inflight.mkdir(parents=True, exist_ok=True)
+owner = str(os.getpid())
+
+def cancel(signum, frame):
+    halted.set()
+    with mutex:
+        processes = list(active)
+        for process in processes:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+    # Process groups include the launcher, the host, and shell descendants. Kill
+    # lingering descendants too, even when their launcher already exited.
+    time.sleep(2)
+    for process in processes:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+signal.signal(signal.SIGTERM, cancel)
+signal.signal(signal.SIGINT, cancel)
+try:
+    with marker.open('x') as stream:
+        stream.write(owner + '\n')
+except FileExistsError:
+    parser.error(f'{backend} wave PID marker exists; reconcile the previous wave before starting another')
+
+# The router only grades scope; it writes nothing. A Codex run grades with the
+# cheapest Codex model. An OMP run resolves @classify from the same overlay the
+# lanes use, because OMP has no --output-schema: the result is written to a
+# temp file and validated here.
+ROUTER_MODEL = 'gpt-6-luna'
+ROUTER_TOOLS = 'bash,read'
+GRADE_SCHEMA = {'type': 'object', 'additionalProperties': False, 'required': ['complexity'],
+                'properties': {'complexity': {'type': 'string', 'enum': ['low', 'medium', 'high']}}}
+
+def omp_overlay(config):
+    """The OMP config.yml overlay (modelRoles + retry.fallbackChains)."""
+    block = config.get('omp') or {}
+    if not isinstance(block, dict):
+        raise ValueError('omp must be an object')
+    retry = block.get('retry') or {}
+    if not isinstance(retry, dict):
+        raise ValueError('omp.retry must be an object')
+    roles, chains = block.get('modelRoles') or {}, retry.get('fallbackChains') or {}
+    if not isinstance(roles, dict) or not isinstance(chains, dict):
+        raise ValueError('omp.modelRoles and omp.retry.fallbackChains must be objects')
+    lines = ['modelRoles:']
+    for role, value in roles.items():
+        if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]*', str(role)):
+            raise ValueError(f'invalid omp.modelRoles role: {role!r}')
+        if isinstance(value, str):
+            value = [value]
+        if (not isinstance(value, list) or not value
+                or not all(isinstance(x, str) and x.strip() and '\n' not in x for x in value)):
+            raise ValueError(f'omp.modelRoles.{role} must be a non-empty string or string array')
+        lines.append('  ' + role + ': ' + json.dumps(', '.join(value)))
+    lines += ['retry:', '  fallbackChains:' + ('' if chains else ' {}')]
+    for role, value in chains.items():
+        if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]*', str(role)):
+            raise ValueError(f'invalid omp.retry.fallbackChains role: {role!r}')
+        if not isinstance(value, list) or not all(isinstance(x, str) and x.strip() for x in value):
+            raise ValueError(f'omp.retry.fallbackChains.{role} must be a string array')
+        lines.append('    ' + role + ': [' + ', '.join(json.dumps(x) for x in value) + ']')
+    return '\n'.join(lines) + '\n'
+
+def omp_limit(config, lane):
+    block = config.get('omp') or {}
+    if not isinstance(block, dict):
+        raise ValueError('omp must be an object')
+    spec = (block.get('limits') or {}).get(lane) or {}
+    if not isinstance(spec, dict):
+        raise ValueError(f'omp.limits.{lane} must be an object')
+    cost, duration = spec.get('max_cost'), spec.get('max_time')
+    if cost is not None and (type(cost) not in (int, float) or cost <= 0):
+        raise ValueError(f'omp.limits.{lane}.max_cost must be a positive number')
+    if duration is not None and (not isinstance(duration, str) or not re.fullmatch(r'\d+(?:\.\d+)?(?:ms|s|m|h)', duration)):
+        raise ValueError(f'omp.limits.{lane}.max_time must look like 3m, 90s or 1h')
+    return (['--max-cost', str(cost)] if cost is not None else []) + (['--max-time', duration] if duration else [])
+
+def omp_extension():
+    for path in (root / '.omp/extensions/super-board-guards.ts', root / '.agents/extensions/super-board-guards.ts'):
+        if path.is_file():
+            return path
+    raise ValueError('guard extension missing: reinstall with install.sh --hosts omp')
+
+def last_assistant_text(stdout):
+    last = None
+    for line in (stdout or '').splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        message = event.get('message')
+        if isinstance(message, dict) and message.get('role') == 'assistant':
+            last = message
+        elif event.get('type') == 'agent_end':
+            for message in reversed(event.get('messages') or []):
+                if isinstance(message, dict) and message.get('role') == 'assistant':
+                    last = message
+                    break
+    if not isinstance(last, dict):
+        return None
+    text = ''.join(block.get('text', '') for block in last.get('content') or []
+                   if isinstance(block, dict) and block.get('type') == 'text')
+    return text.strip() or None
+
+def read_grade(path, stdout):
+    try:
+        text = path.read_text().strip()
+    except OSError:
+        text = last_assistant_text(stdout) or ''
+    try:
+        value = json.loads(text).get('complexity')
+    except (ValueError, AttributeError):
+        return None
+    return value if value in ['low', 'medium', 'high'] else None
+
+def grade(card):
+    """Return (complexity or None, halted). A failed grade falls back to the medium cell."""
+    if pinned or card['status'] != 'Ready':
+        return card.get('complexity') if card.get('complexity') in ['low', 'medium', 'high'] else None, False
+    if card.get('complexity') in ['low', 'medium', 'high']:
+        return card['complexity'], False
+    prompt = (f"Read GitHub issue #{card['number']} (\"{card.get('title', '')}\") - body and all comments - with "
+              f".claude/bin/super-board-github-read.py --kind issue -- issue view {card['number']} --json number,title,body and "
+              f"--kind comments -- api repos/{{owner}}/{{repo}}/issues/{card['number']}/comments --paginate --slurp. "
+              'Grade complexity (low|medium|high) by the scope of change required. Read only: change no file, '
+              'label, comment or board state. Exit 79 from the read helper means stop and return nothing.\n')
+    with tempfile.TemporaryDirectory(prefix=f'super-board-{backend}-grade-') as temporary:
+        schema_path, output = Path(temporary) / 'schema.json', Path(temporary) / 'grade.json'
+        schema_path.write_text(json.dumps(GRADE_SCHEMA))
+        session_dir = Path(temporary) / 'sessions'
+        model_file = Path(temporary) / 'model.json'
+        environment = dict(os.environ, SUPER_BOARD_LANE_TOOLS=ROUTER_TOOLS,
+                           SUPER_BOARD_SKIP_CLEANUP='1', CLAUDE_PROJECT_DIR=str(root))
+        if backend == 'codex':
+            command = ['codex', 'exec', '-m', ROUTER_MODEL, '-C', str(root), '-c', 'approval_policy="never"',
+                       '-c', 'default_permissions="super-board-grade"',
+                       '-c', 'permissions.super-board-grade.filesystem={":root"="read", ":slash_tmp"="write", ":tmpdir"="write"}',
+                       '-c', 'permissions.super-board-grade.network.enabled=true',
+                       '--output-schema', str(schema_path), '--output-last-message', str(output), '-']
+            stdin, capture_stdout = prompt, False
+        else:
+            roles = Path(temporary) / 'roles.yml'
+            roles.write_text(omp_overlay(config))
+            prompt += f'\nWrite exactly {{"complexity":"low|medium|high"}} to {output} and nothing else.\n'
+            environment['SUPER_BOARD_LANE_MODEL_FILE'] = str(model_file)
+            command = ['omp', '-p', '--mode', 'json', '--no-title', '--auto-approve', '--no-skills',
+                       '--tools', ROUTER_TOOLS, '--config', str(roles), '--model', '@classify',
+                       '--no-extensions', '-e', str(omp_extension()),
+                       '--session-dir', str(session_dir)] + omp_limit(config, 'classify') + [prompt]
+            stdin, capture_stdout = None, True
+        with mutex:
+            if halted.is_set():
+                return None, True
+            try:
+                process = subprocess.Popen(command, stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL,
+                                           stdout=subprocess.PIPE if capture_stdout else subprocess.DEVNULL,
+                                           stderr=subprocess.DEVNULL, env=environment, text=True,
+                                           start_new_session=True)
+            except OSError:
+                return None, False
+            active.add(process)
+        stdout = ''
+        try:
+            stdout, _ = process.communicate(stdin)
+        finally:
+            with mutex:
+                active.discard(process)
+        complexity = read_grade(output, stdout)
+        try:
+            append_jsonl(lanes_path, grade_evidence(
+                card, complexity, model_file if backend == 'omp' else None,
+                '@classify' if backend == 'omp' else ROUTER_MODEL, stdout, session_dir))
+        except OSError:
+            pass   # evidence never blocks the grade
+        if process.returncode == 79:
+            return None, True
+        return complexity, False
+
+def live_lock(lock):
+    """True when a regular in-flight lock belongs to a live process; stale locks are removed."""
+    if not lock.is_file():
+        return False
+    try:
+        first = lock.read_text().strip().split('\n')[0]
+        pid = int(first.split('=', 1)[1] if first.startswith('PID=') else first)
+    except (OSError, ValueError, IndexError):
+        return True   # unreadable lock: fail closed rather than race its owner
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        lock.unlink(missing_ok=True)
+        return False
+    except PermissionError:
+        return True
+
+card_helper = launcher.with_name('super-board-card.sh')
+
+def board_column(number):
+    """(column, reason, halted) for a card whose lane result the wave cannot trust.
+
+    The lane's own column is the entry column once the lane is gone, so the board
+    has to witness it. Halt 79 stops this run too: the read helper saved its reason.
+    """
+    if not card_helper.exists():
+        return None, 'board helper missing', False
+    try:
+        completed = subprocess.run(['bash', str(card_helper), '--config', str(config_path),
+                                    'status', str(number)],
+                                   capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError) as error:
+        return None, str(error), False
+    column = completed.stdout.strip()
+    if completed.returncode == 0 and column:
+        return column, None, False
+    if completed.returncode == 79:
+        return None, 'GitHub reads halted', True
+    reason = next((line.strip() for line in reversed(completed.stderr.splitlines()) if line.strip()),
+                  f'board helper exited {completed.returncode}')
+    return None, reason, False
+
+def diagnostics_path(text):
+    """The path the lane printed to stderr when it preserved a failed session."""
+    marker = 'diagnostics preserved at '
+    for line in reversed((text or '').splitlines()):
+        if marker in line:
+            return line.split(marker, 1)[1].strip()
+    return None
+
+def run_card(card, retried=False, complexity=None):
+    if complexity is None:
+        complexity, stop = grade(card)
+        if stop:
+            halted.set()
+            return dict(number=card['number'], finalStatus='halted', lastLane='none', column=card['status'],
+                        detail='run halted while grading; preserve claims and worktrees', prUrl=None,
+                        priorFindings=None, lanesRun='none:halted')
+    labels = [str(label).lower() for label in card.get('labels', [])]
+    first = card.get('lane') or ('qa' if 'qa' in labels else 'build')
+    entry = 'review' if card['status'] == 'Review' else 'qa' if card['status'] == 'QA' else first
+    lanes = ['build', 'qa', 'review'][['build', 'qa', 'review'].index(entry):]
+    history = []
+    current = dict(card)
+    for lane in lanes:
+        review_held = False
+        if lane == 'review':
+            review_lock.acquire()
+            review_held = True
+        with mutex:
+            if halted.is_set():
+                history.append(dict(lane='none', status='halted', column=current['status'], detail='run halted; preserve claims and worktrees'))
+                if review_held:
+                    review_lock.release()
+                break
+            boundary = resolver.report(root, backend, [current], lane=lane,
+                                       home=os.environ.get('SUPER_BOARD_SKILLS_HOME'), catalog=os.environ.get('SUPER_BOARD_SKILLS_CATALOG'))
+            if not boundary['ready']:
+                skills_halted.set()
+                halted.set()
+                history.append(dict(lane=lane, status='halted', column=current['status'],
+                                    detail='skills-readiness: missing ' + ', '.join(e['name'] for e in boundary['entries'] if e['status'] == 'missing')))
+                if review_held:
+                    review_lock.release()
+                break
+            process = None
+            lock = inflight / str(card['number'])
+            if live_lock(lock):
+                halted.set()
+                history.append(dict(lane=lane, status='halted', column=current['status'],
+                                    detail=f'in-flight lock {lock}: another worker owns card #{card["number"]}; preserve it'))
+                if review_held:
+                    review_lock.release()
+                break
+            try:
+                process = subprocess.Popen(['bash', str(launcher), '--backend', backend, '--config', str(config_path),
+                                            '--card', json.dumps(current), '--lane', lane, explicit[0],
+                                            '--tier', args.tier, '--evidence', str(lanes_path)]
+                                           + (['--complexity', complexity] if complexity else []),
+                                           stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                           text=True, start_new_session=True)
+                active.add(process)
+                lock.write_text(f'PID={process.pid}\nLANE={lane}\nBACKEND={backend}\nSTARTED={time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}\n')
+            except OSError as error:
+                if process is not None:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    process.wait()
+                    active.discard(process)
+                if review_held:
+                    review_lock.release()
+                    review_held = False
+                history.append(dict(lane=lane, status='failed', column=current['status'],
+                                    detail=f'could not start {lane} lane: {error}'))
+                break
+        preserve_lock = False
+        stderr = ''
+        try:
+            stdout, stderr = process.communicate()
+            if process.returncode in (9, 10):
+                preserve_lock = True
+                (readiness_halted if process.returncode == 9 else skills_halted).set()
+            parsed = None
+            try:
+                parsed = json.loads(stdout)
+                if (not isinstance(parsed, dict) or parsed.get('status') not in
+                    ['advanced', 'bounced', 'blocked', 'human-gate', 'failed', 'halted']
+                    or not all(isinstance(parsed.get(key), str) for key in ['column', 'detail'])):
+                    raise ValueError('invalid lane result')
+                if process.returncode and parsed['status'] != 'halted':
+                    raise ValueError(f'lane exited {process.returncode}')
+                result = parsed
+            except (ValueError, TypeError):
+                # A lane that moved the card and then died leaves no usable result;
+                # its own column would be the entry column, so read the board and
+                # keep the failure explicit instead of reporting a stale column.
+                board, unread, read_halted = board_column(card['number'])
+                detail = f'{lane} lane returned no valid result (exit {process.returncode})'
+                if isinstance(parsed, dict) and all(isinstance(parsed.get(key), str) for key in ['status', 'detail']):
+                    detail += f'; lane printed {parsed["status"]}: {parsed["detail"]}'
+                if board and board != current['status']:
+                    detail += f'; board moved {current["status"]} → {board}'
+                elif board:
+                    detail += f'; board at {board}'
+                else:
+                    detail += f'; board column unread: {unread}'
+                if read_halted:
+                    halted.set()
+                result = dict(status='halted' if read_halted or process.returncode in (9, 10, 79) or halted.is_set() else 'failed',
+                              column=board or current['status'], detail=detail)
+                result['_retryable'] = (not read_halted and not halted.is_set()
+                                        and process.returncode not in (9, 10, 79)
+                                        and board is not None and board == current['status'])
+            diag = diagnostics_path(stderr)
+            if diag and result['status'] != 'advanced':
+                result['detail'] += f'; diagnostics preserved at {diag}'
+            with mutex:
+                if result['status'] == 'halted':
+                    halted.set()
+                active.discard(process)
+            history.append(dict(lane=lane, **result))
+            if result['status'] != 'advanced':
+                break
+            expected = {'build': 'QA', 'qa': 'Review', 'review': 'Done'}[lane]
+            if result['column'] != expected:
+                history[-1].update(status='failed', detail=f'{lane} claimed advanced without reaching {expected}')
+                break
+            current['status'] = result['column']
+            current.pop('lane', None)
+        finally:
+            try:
+                if not preserve_lock and lock.read_text().startswith(f'PID={process.pid}\n'):
+                    lock.unlink()
+            except FileNotFoundError:
+                pass
+            if review_held:
+                review_lock.release()
+    last = history[-1]
+    summary = dict(number=card['number'], finalStatus=last['status'], lastLane=last['lane'],
+                   column=last['column'], detail=last['detail'], prUrl=last.get('prUrl'),
+                   priorFindings=last.get('priorFindings'),
+                   lanesRun=' → '.join(f"{item['lane']}:{item['status']}" for item in history))
+    # A lane that returned no usable result and left the board untouched did no
+    # observable work. Retry it once, with the same claim and worktree; a lane that
+    # moved the board or returned a valid failure is never retried.
+    if last.get('_retryable') and not retried and not halted.is_set():
+        retry_card = dict(card, status=current['status'])
+        retry_card['lane'] = last['lane']
+        retry = run_card(retry_card, retried=True, complexity=complexity)
+        retry['detail'] = (f"retry after {last['lane']} returned no result "
+                           f"({last['detail']}); " + retry['detail'])
+        retry['lanesRun'] = summary['lanesRun'] + ' → ' + retry['lanesRun']
+        return retry
+    return summary
+
+try:
+    if backend == 'omp':
+        omp_overlay(config)
+        omp_limit(config, 'classify')
+        omp_extension()
+except (OSError, ValueError) as error:
+    if marker.exists() and marker.read_text().strip() == owner:
+        marker.unlink()
+    parser.error(str(error))
+try:
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        summaries = list(pool.map(run_card, cards))
+    result = json.dumps(dict(cards=summaries, halted=halted.is_set()))
+    if output_path:
+        output = output_path
+        temporary = output.with_name(output.name + f'.{owner}.tmp')
+        temporary.write_text(result + '\n')
+        temporary.replace(output)
+    print(result)
+finally:
+    if marker.exists() and marker.read_text().strip() == owner:
+        marker.unlink()
+sys.exit(10 if skills_halted.is_set() else 9 if readiness_halted.is_set() else 79 if halted.is_set() else 0)
+PY

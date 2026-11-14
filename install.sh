@@ -5,7 +5,7 @@
 # merges the hook settings into .claude/settings.json (backed up first, never duplicated).
 #
 # Usage:
-#   ./install.sh [--no-hooks] [--protect-main] [--hosts claude,codex,opencode] [target-project-dir]
+#   ./install.sh [--no-hooks] [--protect-main] [--hosts claude,codex,opencode,omp] [target-project-dir]
 # Defaults to the current working directory. --no-hooks skips the guard hooks
 # and leaves settings.json untouched. --protect-main also wires the opt-in
 # guard that blocks direct and force pushes to main/master/base_branch; with
@@ -14,8 +14,8 @@
 # super-board onboard asks the questions (protect main is one of them).
 #
 # Layout: .agents/{skills/<skill>,bin,workflows,hooks} hold the files. Each host
-# folder (.claude/ always; .codex/ and .opencode/ when that folder already exists,
-# a config "host" key names it, super-board-host.sh reports it, or --hosts asks)
+# folder (.claude/ always; .codex/, .opencode/ and .omp/ when that folder already
+# exists, a config "host" key names it, super-board-host.sh reports it, or --hosts asks)
 # gets one link per skill under skills/ and one link per file under bin/,
 # workflows/ and hooks/. Nothing that is not super-board's is touched. Where a
 # link cannot be made (Windows without symlink rights) the file is copied.
@@ -63,16 +63,16 @@ if [ ! -d "$TARGET" ]; then
   exit 64
 fi
 
-# Hosts: claude always; codex/opencode when asked, configured or detected.
+# Hosts: claude always; codex/opencode/omp when asked, configured or detected.
 HOSTS="claude"
 add_host() { case " $HOSTS " in *" $1 "*) ;; *) HOSTS="$HOSTS $1" ;; esac; }
 for h in $(echo "$ASKED_HOSTS" | tr ',' ' '); do
   case "$h" in
-    claude|codex|opencode) add_host "$h" ;;
-    *) echo "unknown host: $h (use claude, codex or opencode)" >&2; exit 64 ;;
+    claude|codex|opencode|omp) add_host "$h" ;;
+    *) echo "unknown host: $h (use claude, codex, opencode or omp)" >&2; exit 64 ;;
   esac
 done
-for h in codex opencode; do [ ! -d "$TARGET/.$h" ] || add_host "$h"; done
+for h in codex opencode omp; do [ ! -d "$TARGET/.$h" ] || add_host "$h"; done
 for h in $(python3 - "$TARGET/.claude/super-board/configs" <<'PY'
 import glob, json, os, sys
 for p in sorted(glob.glob(os.path.join(sys.argv[1], "*.json"))):
@@ -80,11 +80,12 @@ for p in sorted(glob.glob(os.path.join(sys.argv[1], "*.json"))):
         h = json.load(open(p)).get("host")
     except Exception:
         continue
-    if h in ("codex", "opencode"):
+    if h in ("codex", "opencode", "omp"):
         print(h)
 PY
 ); do add_host "$h"; done
-[ "$(bash "$REPO_ROOT/scripts/super-board-host.sh" 2>/dev/null || true)" != codex ] || add_host codex
+DETECTED_HOST="$(bash "$REPO_ROOT/scripts/super-board-host.sh" 2>/dev/null || true)"
+case "$DETECTED_HOST" in codex|opencode|omp) add_host "$DETECTED_HOST" ;; esac
 
 QUIET="${SUPER_BOARD_QUIET_NEXT:-}"
 PACK_VERSION="$(tr -d '[:space:]' < "$REPO_ROOT/VERSION" 2>/dev/null || echo '?')"
@@ -226,7 +227,7 @@ for skill in $PRIMARY_SKILLS $SECONDARY_SKILLS; do
   install_skill "$skill" "$SHARED/skills/$skill" || true
 done
 
-SCRIPTS="super-board-project-verifier.py super-board-skills-ready.py super-board-calibration.py super-board-verification-ready.py super-board-github-read.py super-board-collect-state.py super-board-run.sh super-board-gh-guard.sh super-board-card.sh super-board-status.py super-board-wave-plan.sh super-board-lane.sh super-board-codex-lane.sh super-board-codex-wave.sh super-board-deps.sh super-board-preflight.sh super-board-merge-gate.sh super-board-merge-policy.py super-board-approval.py super-board-env-check.sh super-board-agents-md.py super-board-settings.py super-board-setup.py super-board-usage.sh super-board-throttle.sh super-board-host.sh super-board-pr-body.sh super-review-file-refactor.sh super-qa-file-bug.sh super-board-stop.sh"
+SCRIPTS="super-board-project-verifier.py super-board-skills-ready.py super-board-calibration.py super-board-verification-ready.py super-board-github-read.py super-board-collect-state.py super-board-run.sh super-board-gh-guard.sh super-board-card.sh super-board-status.py super-board-wave-plan.sh super-board-lane.sh super-board-lane-wave.sh super-board-codex-lane.sh super-board-codex-wave.sh super-board-omp-lane.sh super-board-omp-wave.sh super-board-deps.sh super-board-preflight.sh super-board-merge-gate.sh super-board-merge-policy.py super-board-approval.py super-board-env-check.sh super-board-agents-md.py super-board-settings.py super-board-setup.py super-board-usage.sh super-board-throttle.sh super-board-host.sh super-board-pr-body.sh super-review-file-refactor.sh super-qa-file-bug.sh super-board-stop.sh"
 for script in $SCRIPTS; do
   if [ -f "$REPO_ROOT/scripts/$script" ]; then
     copy_file "$REPO_ROOT/scripts/$script" "$SHARED/bin/$script"
@@ -239,6 +240,11 @@ for wf in $WORKFLOWS; do
     copy_file "$REPO_ROOT/workflows/$wf" "$SHARED/workflows/$wf"
   fi
 done
+EXTENSIONS="super-board-guards.ts"
+if [ -f "$REPO_ROOT/extensions/$EXTENSIONS" ]; then
+  mkdir -p "$SHARED/extensions"
+  copy_file "$REPO_ROOT/extensions/$EXTENSIONS" "$SHARED/extensions/$EXTENSIONS"
+fi
 
 HOOK_FILES=""
 if [ "$HOOKS" -eq 1 ]; then
@@ -272,6 +278,16 @@ for host in $HOSTS; do
     esac
   done
 done
+# OMP loads the guard extension explicitly with `omp -e`; it is not discovered
+# from a host folder, but the link keeps one copy in .agents/ for every profile.
+case " $HOSTS " in
+  *' omp '*)
+    mkdir -p "$TARGET/.omp/extensions"
+    if [ -f "$SHARED/extensions/$EXTENSIONS" ]; then
+      rel=$(relpath "$SHARED/extensions" "$TARGET/.omp/extensions")
+      link_entry omp extensions "$EXTENSIONS" "$REPO_ROOT/extensions/$EXTENSIONS" file "$rel"
+    fi ;;
+esac
 if [ "$COPIED" -eq 1 ]; then
   echo "   ✓ skills, scripts and workflows → .agents/ (copied into $LINKED: no symlinks here)"
 else

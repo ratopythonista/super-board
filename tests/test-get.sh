@@ -5,6 +5,10 @@
 # temp target and checks what landed.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# A host sign in the test shell would add that host's links and change the summary.
+unset OMPCODE PI_CODING_AGENT_DIR OMP_PROFILE CODEX_THREAD_ID CODEX_SESSION_ID OPENCODE SUPER_BOARD_HOST
+# A locale-less CI shell makes tar print warnings that break the line-count assertion.
+export LC_ALL=C LANG=C
 PACK="$PWD"
 GET="$PACK/get.sh"
 

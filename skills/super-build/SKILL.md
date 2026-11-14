@@ -248,9 +248,9 @@ Follow spec `.claude/skills/super-board/references/run.md` → Builder (first pa
 8. Move card Ready/Building → QA.
 
 ### Keep each PR small (every ticket)
-Each PR stays under the merge size cap: `merge_policy.auto_max_lines` (default 400 changed lines,
-additions + deletions; lockfiles, generated files, snapshots and migration SQL do not count — see
-`merge_policy.size_exclude`). A PR over the cap is never auto-merged: the merge gate parks it in
+Each PR stays under the merge size cap: `merge_policy.auto_max_lines` (default 400 changed product lines,
+additions + deletions; lockfiles, generated files, snapshots, documentation and QA evidence under
+`docs/`, and migration SQL do not count — see `merge_policy.size_exclude`). A PR over the cap is never auto-merged: the merge gate parks it in
 Blocked 🙋 "big PR — please review".
 
 Check `git diff --shortstat origin/<base>...HEAD` (minus excluded files) before each push. If the

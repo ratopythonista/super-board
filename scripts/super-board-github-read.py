@@ -40,6 +40,8 @@ FORMS = {
     'head': 'pr view <N> --json headRefName,headRefOid --jq \'"\\(.headRefName) \\(.headRefOid)"\'',
     'body': 'pr view <N> --json body,headRefOid',
     'metadata': 'pr view <N> --json files,labels,body,additions,deletions,changedFiles',
+    # [] is a valid answer: the repository has no CI configured, so the PR has no checks.
+    'checks': 'pr view <N> --json statusCheckRollup --jq .statusCheckRollup ([] = no checks configured = green)',
     # A lane that reads metadata, pushes, then reads the diff races its own head.
     'diff': ('pr diff <N> --repo <owner/repo>, with --meta <file> (before the --) from --kind metadata -- '
              'pr view <N> --json files,labels,body,additions,deletions,changedFiles > <file> taken right before; '
@@ -284,6 +286,18 @@ def validate(text, kind, meta=None):
         require(value.get('state') in ('OPEN', 'CLOSED', 'MERGED') and re.fullmatch(r'[0-9a-f]{40}', value.get('headRefOid', '')), 'merge outcome unreadable')
         if value['state'] == 'MERGED':
             require(re.fullmatch(r'[0-9a-f]{40}', (value.get('mergeCommit') or {}).get('oid', '')), 'merged commit missing')
+    elif kind == 'checks':
+        # `pr view --json statusCheckRollup` wraps the list; `--jq .statusCheckRollup` does not.
+        if isinstance(value, dict):
+            require(isinstance(value.get('statusCheckRollup'), list), 'statusCheckRollup missing')
+            value = value['statusCheckRollup']
+        require(isinstance(value, list), 'checks list missing')
+        for check in value:
+            require(isinstance(check, dict), 'check entry missing')
+            label = check.get('name') or check.get('context')
+            require(isinstance(label, str) and bool(label), 'check name missing')
+            require(any(isinstance(check.get(k), str) and check[k] for k in ('state', 'conclusion', 'status')),
+                    'check state missing')
     elif kind == 'body':
         require(isinstance(value.get('body'), str) and re.fullmatch(r'[0-9a-f]{40}', value.get('headRefOid', '')), 'PR body/head missing')
     elif kind == 'dedupe':
@@ -327,10 +341,23 @@ def read(args, kind='json', meta=None, recovering=False):
         if not recovering:
             check_halt()
         try:
-            result = subprocess.run(['gh', *args], capture_output=True, timeout=30)
+            effective = args
+            result = subprocess.run(['gh', *effective], capture_output=True, timeout=30)
             # Decode by hand: text=True turns a lone \r inside a diff line into \n.
             result.stdout = result.stdout.decode('utf-8', 'replace')
             result.stderr = result.stderr.decode('utf-8', 'replace')
+            # gh >= 2.97 refuses a PR diff that contains terminal escape sequences.
+            # A QA evidence log may legitimately carry them, so retry the same read
+            # with the explicit escape hatch instead of halting the run. Older gh
+            # has no such refusal and no flag, so the flag is added only on this signal.
+            if (result.returncode and args[:2] == ['pr', 'diff']
+                    and '--allow-escape-sequences' not in args
+                    and 'terminal escape sequences' in result.stderr):
+                effective = [*args, '--allow-escape-sequences']
+                operation['args'] = effective
+                result = subprocess.run(['gh', *effective], capture_output=True, timeout=30)
+                result.stdout = result.stdout.decode('utf-8', 'replace')
+                result.stderr = result.stderr.decode('utf-8', 'replace')
             diagnostic = result.stderr
             if result.returncode:
                 diagnostic += result.stdout
@@ -343,6 +370,23 @@ def read(args, kind='json', meta=None, recovering=False):
             if permanent_error(diagnostic):
                 halt('GitHub rejected a required read (query, authentication, or permission error); fix it before restarting', attempt, operation)
             if result.returncode:
+                # A repository without CI is a valid empty answer, not a failed read (#101):
+                # `gh pr checks` exits 1 with "no checks reported" when there is nothing to report.
+                if kind in ('checks', 'json') and args[:2] == ['pr', 'checks']:
+                    if re.search(r'no checks reported', result.stdout + result.stderr, re.I):
+                        if not recovering:
+                            check_halt()
+                        print('[github-read] no checks reported; no CI checks configured', file=sys.stderr)
+                        return '[]\n', []
+                    # A failing or pending check makes `pr checks` exit non-zero; the JSON is
+                    # still valid evidence, not an outage.
+                    try:
+                        value = validate(result.stdout, 'checks', meta)
+                        if not recovering:
+                            check_halt()
+                        return result.stdout, value
+                    except (ValueError, KeyError, TypeError, AttributeError, IndexError):
+                        pass
                 shape_only = False
                 status = re.search(r'HTTP [0-9]{3}', result.stderr)
                 last = 'GitHub required read failed' + (f' ({status[0]})' if status else '')
@@ -368,7 +412,7 @@ def read(args, kind='json', meta=None, recovering=False):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--kind', choices=('json','scalar','issue-number','head','state','diff','metadata','items','issues','issue-history','quota','projects','project','fields','status-field','permission','comments','approval','merge-state','body','dedupe','prs-open','prs-merged','issues-closed','issue','object','array'))
+    parser.add_argument('--kind', choices=('json','scalar','issue-number','head','state','diff','metadata','checks','items','issues','issue-history','quota','projects','project','fields','status-field','permission','comments','approval','merge-state','body','dedupe','prs-open','prs-merged','issues-closed','issue','object','array'))
     parser.add_argument('--issue-history', help='complete paginated all-state issue history for owner/name')
     parser.add_argument('--meta')
     parser.add_argument('--check', action='store_true')

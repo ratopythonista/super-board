@@ -6,7 +6,9 @@ clarifying answers.
 
 **Before worker writes or worktree creation:** follow [skill readiness](../../super-board/references/skills-readiness.md).
 Resolve this lane for the actual host, load the report's files/fallbacks, halt
-on missing requirements and recheck each conditional helper before use.
+on missing **required** skills and recheck each conditional helper before use.
+A conditional helper that `--require` reports missing (exit 10) is skipped and
+the work continues inline; it never halts the lane.
 
 
 For existing project verifier coverage relevant to this iteration, follow

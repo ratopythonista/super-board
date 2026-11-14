@@ -167,6 +167,9 @@ goes in Before | After.
 Local time from config `timezone` (onboard sets it to the machine's zone). Get the stamp with
 `super-board-pr-body.sh --time --config <cfg>`. `--append-file` keeps a new row inside the
 fold, above the blank line and `</details>`; an older unfolded history still appends at its end.
+On an OMP lane, Details starts with the resolved pair read from
+`$SUPER_BOARD_LANE_MODEL_FILE`: `@role · provider/model:thinking · <sha>` (ADR-0031).
+Claude and Codex rows keep the short form.
 
 ```
 <details><summary>Iteration history</summary>
@@ -174,6 +177,7 @@ fold, above the blank line and `</details>`; an older unfolded history still app
 | Lane | Done | Time | Details |
 |---|---|---|---|
 | 🔨 builder | ✅ | Oct 2, 10:02 EDT | draft · `3f9c2a1` |
+| 🔨 builder | ✅ | Oct 2, 10:14 EDT | @hard · opencode-go/deepseek-v4.1-flash:max · `8b1d0c4` |
 | 🔍 qa | ❌ v1 | Oct 2, 10:40 EDT | mobile hidden · `runs/issue-790-qa-v1/` |
 | 🔍 qa | ✅ v2 | Oct 2, 11:55 EDT | `runs/issue-790-qa-v2/` |
 | 🧐 reviewer | ✅ merged | Oct 2, 12:20 EDT | squash `9c41e07` |

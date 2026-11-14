@@ -546,14 +546,16 @@ The worker (per `references/iteration-preamble.md`) must load and follow:
 - `testing-strategy` — coverage judgment per component type, and what to skip.
   Consult it for *what is worth testing*; it does not pick the layer. The
   localisation ladder in `references/iteration-preamble.md` picks the layer.
-- `vitest` — mechanics for unit and integration tests in a TS/JS repo. 19
-  references (`core-expect`, `features-mocking`, `features-coverage`,
-  `core-hooks`, `advanced-vi`).
-- `playwright-best-practices` — when writing or refactoring a spec. Reference
-  its `core/locators.md` (data-testid first, `getByRole` fallback),
+- `vitest` — conditional: mechanics for unit and integration tests in a TS/JS repo.
+  19 references (`core-expect`, `features-mocking`, `features-coverage`,
+  `core-hooks`, `advanced-vi`). When the host has no `vitest` skill, continue
+  inline and never halt.
+- `playwright-best-practices` — conditional: when writing or refactoring a spec.
+  Reference its `core/locators.md` (data-testid first, `getByRole` fallback),
   `core/fixtures-hooks.md` (custom fixtures for auth, pre-test seeding, teardown),
   `core/test-data.md` (test data factories), and `core/page-object-model.md` (POM for
-  reusable interactions). Keep specs reusable as the suite grows.
+  reusable interactions). Keep specs reusable as the suite grows. If the host has
+  no such skill, continue inline and never halt.
 
 ## Coexistence with `/super-build`
 
@@ -663,7 +665,7 @@ for affected selection, host readiness, real assertions and fresh proof.
 3b. Run the **Test-gap check** (above) against the Builder's diff; its High gaps join the plan.
 3c. Run the **Security pass** (above) on the PR's diff. Any kept finding → Fail (step 7).
 4. Run tests. Capture evidence to `docs/super-board/runs/issue-<N>-qa-v<N>/`. **For any UI-affecting issue, capture at least one screenshot per AC** (Playwright `page.screenshot` or `browse --screenshot`). Save with descriptive names: `ac1-<short-desc>.png`, not `screenshot1.png`.
-5. **Commit the evidence directory** to the issue branch alongside test files (`git add docs/super-board/runs/issue-<N>-qa-v<N>/ && git commit && git push`). This is non-optional — without it, the inline image markdown in the issue comment won't render on GitHub.
+5. **Commit the evidence directory** to the issue branch alongside test files (`git add docs/super-board/runs/issue-<N>-qa-v<N>/ && git commit && git push`). This is non-optional — without it, the inline image markdown in the issue comment won't render on GitHub. Evidence under `docs/` is excluded from `merge_policy.auto_max_lines` (`size_exclude`), so it cannot push the PR into the human size gate.
 6. **Pass** → tick the PR's `ac` block with proof lines, write `visual` for UI, append a `history` row, rewrite `status` (`super-board-pr-body.sh`) → `[qa] [report] ✅` PR comment with results + evidence path → **issue comment with screenshot evidence** (see "Issue-comment evidence format" below) → move QA → Review. Clean up worktree.
 7. **Fail** → leave failing ACs unchecked with the reason, append a `history` row, rewrite `status` → `[qa] [report] ❌` PR comment with per-AC expected/actual + repro file:line + evidence path + "what fixed should look like" → issue comment with the failure screenshots → increment rebuild counter → move QA → Ready (label `loop:rebuild-N`). Clean up worktree.
 

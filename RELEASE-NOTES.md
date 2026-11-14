@@ -1,5 +1,79 @@
 # Release notes
 
+## v3.4.0 — 2026-11-10
+
+OMP becomes a first-class host and lane backend (ADR-0031, #94).
+
+- ✨ **Host `omp`.** `super-board-host.sh` answers `omp` for `OMPCODE`, `PI_CODING_AGENT_DIR`
+  or `OMP_PROFILE`, checked before the `CLAUDECODE=1` OMP also exports. `SUPER_BOARD_HOST`
+  and config `host` accept it; `install.sh --hosts omp` links `.omp/{skills,bin,workflows,hooks}`
+  and `.omp/extensions/super-board-guards.ts`.
+- ✨ **Skills readiness for OMP.** `super-board-skills-ready.py --host omp` searches the three
+  project surfaces (`.agents/skills`, `.claude/skills`, `.omp/skills`) and their user roots.
+- ✨ **Lane backend `Omp`.** `super-board-lane.sh --backend omp` (wrapper
+  `super-board-omp-lane.sh`) runs `omp -p --mode json` with the lane allowlist,
+  `--max-time`/`--max-cost` from `omp.limits`, a per-run `modelRoles` overlay, the guard
+  extension, and the same result schema/`conforms()` as Codex. Review always resolves
+  `@review` and still requires explicit `--omp`; `--omp=<model|@role>` pins every lane.
+- ✨ **Generic wave.** `super-board-lane-wave.sh --backend codex|omp` owns the shared
+  ThreadPoolExecutor, router, halt codes and merge mutex. `super-board-codex-wave.sh` and
+  `super-board-omp-wave.sh` are wrappers; markers are `<backend>-wave.pid`, and `stop`
+  understands both waves plus `omp -p` orphan workers.
+- ✨ **Guard extension.** `.omp/extensions/super-board-guards.ts` maps `tool_call`/`tool_result`
+  to the six Python hooks and narrows `task` subagents to `read,bash,grep,glob` (children do
+  not inherit `--tools`). The lane fails closed when the extension is missing.
+- ✨ **Lane evidence survives the run.** Every OMP lane appends
+  `{ts, card, lane, role, provider, model, thinking, cost, status}` to the run's
+  `lanes.jsonl` (beside `--output`, or under
+  `<paths.runs_dir>/<date>-<config>-<backend>/`), and the `@classify` grade writes the
+  same record with `complexity`. `cost` is the USD OMP recorded for the lane,
+  subagents included. The PR history line uses the resolved pair
+  (`@role · provider/model:thinking · <sha>`), so the model table per stage no longer
+  needs a manual probe (#103).
+- 🐛 **A dead lane reports the board's column.** When a lane moves the card and then ends
+  without a usable result, `super-board-lane-wave.sh` reads the card's real Status once through
+  `super-board-card.sh`, reports `failed` with that column and the move (`board moved Ready → QA`)
+  and keeps the lane's printed detail. An unreadable board read halts the wave and names the
+  column unread, so the summary never echoes the entry column (#97).
+- 🐛 **A rejected lane result is no longer thrown away.** The lane accepts bare JSON, a
+  fenced JSON block or the first JSON object in prose, scans the NDJSON messages newest first so an
+  aborted `task` subagent's text is skipped instead of inherited, and names every schema path
+  that missed (`$.branch: required key missing`, `$.note: unexpected key`). The payload is kept
+  at `.claude/super-board/rejected/lane-result-rejected-<lane>-<card>.{json,txt}` and the
+  failure detail — therefore `wave-result.json` — cites that file (#100).
+- 🐛 **A no-result lane is retried once when it did no observable work.** If a lane
+  returns no usable result and the board still shows the column it started in, the wave
+  reruns that lane once with the same claim and worktree. A lane that moved the card, or
+  returned a valid `failed`, is never retried, so a real failure is not masked (#104).
+- 🐛 **A failed lane keeps its session for diagnosis.** The lane copies its OMP session,
+  stderr and resolved `meta.json` to
+  `.claude/super-board/rejected/lane-diagnostics-<lane>-<card>-<pid>/` before deleting the
+  temp dir, and the wave names that path in the detail (#104).
+- 🐛 **A missing conditional helper no longer halts the lane.** `--require <name>` exit 10
+  only means that optional helper is unavailable; the worker skips it and continues inline.
+  Only the initial readiness recheck halts on a missing required skill (#104).
+- 🐛 **Review lanes serialize across a wave.** One review owns the merge gate at a
+  time, so a transient shared halt or merge race from one card cannot poison a peer;
+  Build and QA lanes still run in parallel under `max_workers` (#104).
+- 🐛 **The size gate counts product lines.** `merge_policy.auto_max_lines` (400) now ignores
+  `docs/**`, so the QA evidence the Tester must commit to the branch (logs and screenshots under
+  `docs/super-board/runs/issue-<N>-qa-v*/`) no longer sends a small product PR to the human gate
+  (#96). `size_exclude` still replaces the whole default list.
+- 🐛 **A repository without CI no longer halts Review.** `--kind checks` reads
+  `pr view <N> --json statusCheckRollup`; `[]` means no checks are configured and is green, and
+  `gh pr checks`' "no checks reported" is accepted as the same empty answer. The Reviewer records
+  `CI: nenhum check configurado` on the report's `Did:` line instead of halting the wave (#101).
+- 🐛 **A diff with terminal escapes is still readable evidence.** `gh` 2.97 refuses
+  `pr diff` when a changed line contains ANSI sequences (a QA evidence log can). The read
+  helper retries that same read with `--allow-escape-sequences` only on that signal, so
+  older `gh` keeps working and a valid PR does not halt the wave (#104).
+- 🐛 **The stop comment keeps a worktree branch's resume point.** `last_commit_on_branch` strips
+  the `+` that `git branch` puts before a branch checked out in another worktree (and `*` for the
+  current one) before `git log`, so the comment names the tip instead of
+  `(branch found but no commits)` (#102).
+- 🧪 `test-codex-lane.sh` covers the generalized launcher; new `test-omp-lane.sh`,
+  `test-omp-guards.sh` and host/skills/setup cases cover OMP.
+
 ## v3.3.0 — 2026-10-27
 
 The security check moves to QA, and `/super-collect` hands its findings to Matt Pocock's planning chain.

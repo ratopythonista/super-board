@@ -225,7 +225,8 @@ to the base branch is opt-in (`onboard` asks once, or `install.sh --protect-main
   money / auth / destructive schema (labels,   exit 7      Blocked 🙋 — you merge it, or
     path globs, added-line keywords), or                   comment `done` to approve
     over auto_max_lines (default 400 changed
-    lines: "big PR — please review")
+    product lines; docs/ and other size_exclude
+    globs do not count: "big PR — please review")
   additive migrations, target env allowed      migrate,    Done
                                                merge (0)
   migrations for live (not allowed), a failed  exit 8      Blocked 🙋 — exact commands;
@@ -256,7 +257,7 @@ Minimal config at `.claude/super-board/configs/<slug>.json`:
   worker_backend        workflow | claude-p
   columns               Backlog · Ready · Building · QA · Review · Blocked · Done (always all seven)
   human_approves_merge  legacy: true = never auto-merge (prefer merge_policy.default "human")
-  merge_policy          default auto|human · auto_max_lines (400) · size_exclude · always_human {money, auth, schema}
+  merge_policy          default auto|human · auto_max_lines (400 product lines; docs/** excluded) · size_exclude · always_human {money, auth, schema}
   migrations            globs · allowed_envs (test, staging, live) · target_env · commands
   verify_commands       run by the merge gate against the current base before every merge
   rebuild_cap           bounces allowed before a card goes Blocked

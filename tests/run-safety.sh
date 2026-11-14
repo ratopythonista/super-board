@@ -7,6 +7,8 @@ cd "$(dirname "$0")/.."
 for tool in bash python3 git jq node curl tar; do
   command -v "$tool" >/dev/null || { echo "Missing test dependency: $tool" >&2; exit 1; }
 done
+python3 -c 'import yaml' 2>/dev/null \
+  || { echo 'Missing test dependency: PyYAML (python3 -m pip install pyyaml)' >&2; exit 1; }
 
 shopt -s nullglob
 suites=(tests/test-*.sh tests/test_*.py)

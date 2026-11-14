@@ -24,6 +24,9 @@ p = pathlib.Path(os.environ['READ_CALLS'])
 n = int(p.read_text()) if p.exists() else 0
 p.write_text(str(n + 1))
 responses = json.loads(os.environ['READ_RESPONSES'])
+if os.environ.get('READ_REQUIRE_ESCAPE_FLAG') and '--allow-escape-sequences' not in sys.argv:
+    print('the diff contains terminal escape sequences; pass --allow-escape-sequences to output it anyway', file=sys.stderr)
+    sys.exit(1)
 r = responses[min(n, len(responses)-1)]
 print(r.get('out', ''), end='')
 print(r.get('err', ''), file=sys.stderr)
@@ -114,6 +117,56 @@ sys.exit(r.get('rc', 0))
         r = self.read([{'out': '{"items":[],"totalCount":0}'}], 'items')
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.log.read_text(), '1')
+
+    def test_no_checks_reported_is_a_valid_empty_read(self):
+        # #101: a repo without CI makes `gh pr checks` exit 1; that is an answer, not an outage.
+        for kind in ('checks', 'json'):
+            with self.subTest(kind=kind):
+                self.log.unlink(missing_ok=True)
+                self.halt.unlink(missing_ok=True)
+                r = self.read([{'rc': 1, 'err': "no checks reported on the 'issue-1-x' branch"}],
+                              kind, command=['pr', 'checks', '7', '--repo', 'o/r'])
+                self.assertEqual((r.returncode, r.stdout), (0, '[]\n'), r.stderr)
+                self.assertEqual(self.log.read_text(), '1')
+                self.assertIn('no CI checks configured', r.stderr)
+                self.assertFalse(self.halt.exists())
+
+    def test_empty_status_rollup_is_green(self):
+        # #101: `[]` from `pr view --json statusCheckRollup` means no CI is configured.
+        for out in ('[]', '{"statusCheckRollup":[]}'):
+            with self.subTest(out=out):
+                self.log.unlink(missing_ok=True)
+                self.halt.unlink(missing_ok=True)
+                r = self.read([{'out': out}], 'checks',
+                              command=['pr', 'view', '7', '--json', 'statusCheckRollup'])
+                self.assertEqual((r.returncode, r.stdout), (0, out), r.stderr)
+                self.assertEqual(self.log.read_text(), '1')
+                self.assertFalse(self.halt.exists())
+
+    def test_non_empty_checks_are_valid_evidence(self):
+        # A failing check makes `pr checks` exit 1, but the JSON is evidence, not an outage.
+        out = '[{"name":"ci","status":"COMPLETED","conclusion":"FAILURE"}]'
+        for response, command in [({'out': out}, ['pr', 'view', '7', '--json', 'statusCheckRollup']),
+                                  ({'out': out, 'rc': 1}, ['pr', 'checks', '7', '--json', 'name,state'])]:
+            with self.subTest(command=command):
+                self.log.unlink(missing_ok=True)
+                self.halt.unlink(missing_ok=True)
+                r = self.read([response], 'checks', command=command)
+                self.assertEqual((r.returncode, r.stdout), (0, out), r.stderr)
+                self.assertEqual(self.log.read_text(), '1')
+                self.assertFalse(self.halt.exists())
+
+    def test_checks_shape_mismatch_fails_only_that_read(self):
+        for out in ('not json', '{"statusCheckRollup":{}}', '[{"state":"SUCCESS"}]', '[{"name":"ci"}]'):
+            with self.subTest(out=out):
+                self.log.unlink(missing_ok=True)
+                self.halt.unlink(missing_ok=True)
+                r = self.read([{'out': out}], 'checks',
+                              command=['pr', 'view', '7', '--json', 'statusCheckRollup'])
+                self.assertEqual(r.returncode, 64, r.stderr)
+                self.assertEqual(self.log.read_text(), '3')
+                self.assertIn('Valid form: --kind checks -- ', r.stderr)
+                self.assertFalse(self.halt.exists())
 
     def test_incomplete_dependency_pages_are_not_a_graph(self):
         page = {'data': {'repository': {'issues': {
@@ -213,6 +266,23 @@ dispatch_lane build 7
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.log.read_text(), '1')
         self.assertEqual(result.stdout.decode(), diff)
+
+    def test_diff_with_terminal_escapes_retries_with_the_escape_hatch(self):
+        # #104: a QA evidence log may contain ANSI; gh >= 2.97 refuses `pr diff`
+        # unless --allow-escape-sequences is passed. That is valid evidence, not an outage.
+        metadata = self.root / 'meta.json'
+        metadata.write_text(json.dumps({'files':[{'path':'mutation-check.txt'}], 'additions':1,'deletions':0}))
+        diff = ('diff --git a/mutation-check.txt b/mutation-check.txt\n'
+                'new file mode 100644\n--- /dev/null\n+++ b/mutation-check.txt\n'
+                '@@ -0,0 +1 @@\n+\x1b[31mKILLED\x1b[0m\n')
+        self.env['READ_REQUIRE_ESCAPE_FLAG'] = '1'
+        self.env['READ_RESPONSES'] = json.dumps([{'out':''}, {'out':diff}])
+        result = subprocess.run(['python3', str(HELPER), '--kind', 'diff', '--meta', str(metadata),
+                                 '--', 'pr', 'diff', '1'], env=self.env, cwd=self.root, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, diff)
+        self.assertEqual(self.log.read_text(), '2')
+        self.assertFalse(self.halt.exists())
 
     def test_corrected_query_can_resume_without_erasing_original_failure(self):
         bad = ['api', 'graphql', '-f', 'query=query { wrong }']

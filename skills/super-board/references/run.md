@@ -202,6 +202,9 @@ read it — re-read, then redo the edit. Builder opens the PR with every block f
 </details>
 <!-- /sb:history -->
 
+OMP lanes put the resolved pair first in Details: `@role · provider/model:thinking ·
+<sha>` read from `$SUPER_BOARD_LANE_MODEL_FILE` (ADR-0031).
+
 <!-- sb:risk -->
 ## Risk
 🟢 **Low** · <one line: what could break and what limits it>
@@ -273,7 +276,7 @@ The script asks four questions and the agent adds a fifth; the agent owns the ju
 | 2 | Already in progress? | open PR on another branch closes `#N` or has the same title; a card in Building/QA/Review (or a lower-numbered Ready peer) with the same title | same feature, different words — not merely the same files |
 | 3 | File overlap? | open PR touches files the card names; a lower-numbered card in the same `--issues` batch names the same files | expected files from reading the issue (`--files`); the same overlap with a Ready peer in another batch |
 | 4 | Unclear? | no `## Acceptance Criteria` bullets | AC that contradicts the current code (cite `file:line`) |
-| 5 | Too big? | — | likely over ~400 changed lines (`merge_policy.auto_max_lines`; lockfiles, generated, snapshots, migration SQL excluded) or spans many areas (UI + API + DB + jobs …) — lint.md criterion 15 |
+| 5 | Too big? | — | likely over ~400 changed product lines (`merge_policy.auto_max_lines`; lockfiles, generated, snapshots, docs/evidence and migration SQL excluded) or spans many areas (UI + API + DB + jobs …) — lint.md criterion 15 |
 
 **Two Ready cards that overlap each other, neither with an open PR, go one at a time.** The
 lower-numbered card proceeds; only the other is sequenced, with `blocked-by: #<lower>`, and the
@@ -312,7 +315,7 @@ column), never built unchecked. `qa` cards are not pre-flighted: nothing is buil
 3b. Touches a third-party API/SDK, an upgrade, or auth/billing? Read the current official docs
     for the installed version first (super-build → "Docs before outside-tool code").
 4. Implement smallest safe change covering ACs, under the PR size cap
-   (`merge_policy.auto_max_lines`, default 400 changed lines). Growing past it mid-build → stop,
+   (`merge_policy.auto_max_lines`, default 400 changed product lines; docs/evidence does not count). Growing past it mid-build → stop,
    push what you have, propose the split (vertical slices via `/to-tickets`) in a PR comment and
    move the card to Blocked `❓` — never push on past the cap (super-build → "Keep each PR small").
 5. Commit + push (always). Commits follow writing-standard.md § 1 (`✨ [feat] chat: stream replies` + short bullets).
@@ -345,7 +348,7 @@ for affected feature selection, actual host readiness and new run-owned proof.
 Record uncovered/stale optional coverage alongside ordinary issue AC checks.
 4b. **Test-gap check** (super-qa → "Test-gap check (after build)"): map every AC to unit / component / e2e tests, hunt edge cases, write the High gaps red-first. A High gap that needs app code changed → Fail (step 7) with the gap list. Medium/Low go in the handoff under `Test gaps (not written)`.
 4c. **Security pass** (super-qa → "Security pass (every PR)"): run `pr-security-review` on the PR's diff against its base. Each kept finding is a failing check → Fail (step 7) with a `[builder]` thread on its file:line. Skill missing → Block.
-5. Run the tests. Capture evidence to `docs/super-board/runs/issue-<N>-qa-v<N>/`. For UI/visual ACs, capture screenshots at the standard viewports (1920×1080 desktop, 1024×768 tablet, 375×667 mobile). Commit the screenshots to the issue branch BEFORE writing the comment (the markdown image URLs depend on the files being present on the branch).
+5. Run the tests. Capture evidence to `docs/super-board/runs/issue-<N>-qa-v<N>/`. For UI/visual ACs, capture screenshots at the standard viewports (1920×1080 desktop, 1024×768 tablet, 375×667 mobile). Commit the screenshots to the issue branch BEFORE writing the comment (the markdown image URLs depend on the files being present on the branch); `docs/**` is excluded from `merge_policy.auto_max_lines`, so evidence does not count toward the size gate.
 6. **Pass** → commit test files + screenshots to same branch + push → tick the `ac` block with proof lines, write `visual` for UI, append a `history` row, rewrite `status` → `[qa] [report] ✅` PR comment with results + evidence path **+ inline screenshot embeds** (see "Screenshot embed format" below) → issue comment with the SAME inline screenshot embeds → move card QA → Review. Clean up worktree.
 7. **Fail** → leave failing ACs unchecked with the reason, append a `history` row, rewrite `status` → `[qa] [report] ❌` PR comment with per-AC expected/actual + repro file:line + evidence path + "what fixed should look like" **+ inline screenshot embeds of the broken state** → issue comment with the same inline screenshots (showing what's wrong) → increment rebuild counter → move card QA → Ready (label `loop:rebuild-N`). Clean up worktree.
 
@@ -410,6 +413,12 @@ If a screenshot file is >5MB, downscale to ≤1920px wide before committing; Git
    - Re-run the test command Tester used (recorded in Tester's PR handoff comment as `Local tests:` line).
    - Tests green → continue to step 6.
    - Tests red → open new `[qa]`-prefixed PR thread quoting the failure output, move card Review → QA with `loop:rebuild-N`, exit. Tester wrote a broken suite; QA owns the fix.
+5b. **CI checks** — one bounded read:
+   `python3 .claude/bin/super-board-github-read.py --kind checks -- pr view <PR> --json statusCheckRollup --jq .statusCheckRollup`.
+   `[]` means the repository has no CI configured: that is green, not missing evidence, and the
+   report's `Did:` line says `CI: nenhum check configurado`. Never read checks with `gh pr checks`:
+   in a repo without CI it exits 1 with "no checks reported" and would halt the run. A failing
+   check is a finding, not a read halt.
 6. **Adversarial mode** (per `truth_gate`): when triggered, spawn 2 sub-agents in parallel:
    - **Code-grounder** — verify cited file:line still exists and matches claims.
    - **Historian** — `git blame` the changed lines, check for ADRs / prior incidents.

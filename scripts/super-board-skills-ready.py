@@ -264,6 +264,14 @@ class Inventory:
         if host == 'claude':
             self.roots = [self.root / '.claude/skills', self.home / '.claude/skills']
             self.claude_plugins()
+        elif host == 'omp':
+            # OMP discovers all three project surfaces: .agents (canonical, shared),
+            # .claude (Claude-compatible skills and links) and .omp (native). The
+            # user roots mirror them so a project can install a skill once.
+            self.roots = [self.root / '.agents/skills', self.root / '.claude/skills',
+                          self.root / '.omp/skills', self.home / '.agents/skills',
+                          self.home / '.claude/skills', self.home / '.omp/agent/skills',
+                          self.home / '.omp/skills']
         else:
             # Codex discovery stops at this independent repository's root.
             process = subprocess.run(['git', '-C', str(self.root), 'rev-parse', '--show-toplevel'],
@@ -454,7 +462,7 @@ class UsageParser(argparse.ArgumentParser):
 def main(argv=None):
     parser = UsageParser(description=__doc__)
     parser.add_argument('--root', required=True)
-    parser.add_argument('--host', required=True, choices=['claude', 'codex'])
+    parser.add_argument('--host', required=True, choices=['claude', 'codex', 'omp'])
     selection = parser.add_mutually_exclusive_group(required=True)
     selection.add_argument('--cards')
     selection.add_argument('--profile', choices=['setup'])
