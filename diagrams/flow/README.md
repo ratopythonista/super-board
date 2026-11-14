@@ -22,10 +22,18 @@ python3 skills/visual/scripts/visual.py render --map diagrams/flow/map.json \
   --no-check --no-optimize --no-open
 ```
 
-**Why `--no-optimize`.** The default render launches headless Chrome to bake a crossing-free layout per view.
-That step does not finish on this machine (the page waits on the Google Fonts stylesheet), so every view in
-`map.json` carries a hand-written `layout` instead: the page then skips its search. When you add or remove a node
-in a view, add or move its `[col, row]` in the same commit.
+**Why `--no-optimize`.** The default render bakes a crossing-free layout per view by running
+`chrome --dump-dom '<page>#check=1&optimize=1'` (`page_layouts`). That call never returns on this machine: 40 s,
+empty stdout, with and without `--virtual-time-budget`, with and without `--force-prefers-reduced-motion`. The
+page-side hook it depends on, `window.__mapAudit()`, also does not finish (60 s+, no result), even on a model
+this small (9 views, ≤35 nodes each, no self-edges, every view fully laid out) — so this is the audit path in the
+tooling, not the data. A CI bake would hit the same path, so this page does **not** try to bake in `pages.yml`
+either. Every view in `map.json` carries a hand-written `layout` instead and the page skips its search; when you
+add or move a node, move its `[col, row]` in the same commit.
+
+**Never add a webfont `<link>` to this page.** One sat before every script in the template and, while that
+request hung, the map's JS never ran: no `<svg>` after 20 s on the live page, 47 ms once removed. The font
+stacks in `--sans`/`--mono` already fall back to system fonts.
 
 **Why `--no-check`.** Same Chrome dependency for the overlap audit. Verify visually with
 `npx playwright screenshot` or by opening the page: `#view=root`, `#view=contrato`, `#view=fabrica`,
