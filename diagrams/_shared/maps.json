@@ -12,18 +12,6 @@
   "kind": "page"
  },
  {
-  "id": "flow",
-  "label": "Flow map",
-  "short": "Flow",
-  "path": "flow/",
-  "dir": "flow",
-  "blurb": "The development flow on OMP: intake → contract → factory → merge gate → acceptance, plus the Python lane.",
-  "thumb": "assets/flow.png",
-  "nav": true,
-  "icon": "skillmap",
-  "kind": "map"
- },
- {
   "id": "onboarding",
   "label": "Setup simulator",
   "path": "onboarding/",
