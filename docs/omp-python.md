@@ -123,7 +123,7 @@ what the scripts read. A Python board differs from the default in five places:
 - **`paths.pre_flight_md`** is the repo pre-flight the lanes read first — name the stack, the commands and
   the paths they must not touch.
 
-## Run
+## Run a wave
 
 ```bash
 /super-board run --omp          # router @classify · easy → @medium · medium and hard → @hard
@@ -132,21 +132,12 @@ what the scripts read. A Python board differs from the default in five places:
 ```
 
 Plain `run` inside an OMP session counts as `--omp`. Review only runs with the explicit flag (or a
-host-switched plain run): it is the lane that merges.
-
-One lane, for diagnosis:
-
-```bash
-bash .claude/bin/super-board-omp-lane.sh \
-  --config .claude/super-board/configs/<slug>.json \
-  --card '<card JSON>' --lane build|qa|review --omp [--tier low|medium|high]
-```
-
-The lane is `omp -p --mode json` with `--model @<role>`, `--max-time`/`--max-cost` from `omp.limits.<lane>`,
-`--no-extensions -e .omp/extensions/super-board-guards.ts`, and `--tools
-read,bash,edit,write,grep,glob,web_search[,task]`.
+host-switched plain run): it is the lane that merges. The lane command, the role table and what the caps end are
+in [The OMP lane](omp-lane.md).
 
 ## Python lane skills
+
+![The Python lane: verify_commands, the pytest-fasthtml skill, Playwright in QA](assets/flow/python.svg)
 
 The pack assumes TS/JS for its own mechanics. For pytest + FastHTML, install the skill published from
 `ratopythonista/skills`:
@@ -168,42 +159,3 @@ Skills: pytest-fasthtml, mattpocock-skills:tdd
 `Skills:` replaces the Build lane's default skill line; always-listed helpers stay listed. The skill covers
 placement (unit vs integration vs e2e), fixtures, async handlers, HTMX requests, Playwright and the
 `uv run pytest` / `uv run ruff` commands — the same four commands as `verify_commands`, run from `python/`.
-
-## Evidence
-
-Every wave appends one record per lane to `lanes.jsonl` beside `--output` (default
-`docs/super-board/runs/<date>-<config>-<backend>/lanes.jsonl`):
-
-```jsonc
-{ "ts": "…", "card": 31, "lane": "build", "role": "hard", "provider": "…", "model": "…",
-  "thinking": "max", "cost": 0.42, "status": "done" }
-```
-
-The model table of a run comes from the run itself, no probe:
-
-```bash
-jq -r '[.card,.lane,.role,.provider,.model,.thinking,.cost] | @tsv' lanes.jsonl
-jq -sr 'map(select(.lane != "classify")) | group_by(.lane)
-        | map({lane: .[0].lane, pairs: ([.[] | "\(.role) · \(.provider)/\(.model):\(.thinking)"] | unique)})
-        | .[] | "\(.lane)\t\(.pairs | join(", "))"' lanes.jsonl
-```
-
-Failed and halted lanes keep their OMP session, stderr and `meta.json` under
-`.claude/super-board/rejected/lane-diagnostics-<lane>-<card>-<pid>/`.
-
-## Gaps you accept with this host
-
-| Gap | Consequence |
-|---|---|
-| No Workflow tool | every lane is a headless `omp -p`; no in-session fan-out |
-| No `resumeFromRunId` | a stopped wave restarts from the board, not from a run id |
-| No `/workflows` UI | progress lives in `wave.log`, `wave-result.json` and `lanes.jsonl` |
-| No pause-by-plan-% | caps are flat per lane (`--max-time`/`--max-cost`) |
-| Review needs `--omp` | a host-switched plain `run` also counts; a lane started from another shell must say it |
-| No browser tool | QA drives Playwright from bash, or the `eval` browser global |
-
-## Versions
-
-`VERSION` stays `3.4.0` — the upstream number the fork branched from. The tag `v3.4.0-omp.1` names the
-fork's provenance, so it cannot collide with the upstream's own `v3.4.0` release. Install by tag
-(`--ref v3.4.0-omp.1`) unless you deliberately want the moving tip (`--ref main`).
