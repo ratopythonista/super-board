@@ -1,5 +1,29 @@
 # Release notes
 
+## v3.5.0 — 2026-11-23
+
+The Pack Python becomes part of the fork: onboarding installs it and the gate enforces it (#119, #130).
+
+- ✨ **`stack` selects the pack.** `{"name": "python", "profile": "web", "root": "python"}` in the board
+  config. `super-board-skills-ready.py` reads the active config (`--stack python` overrides) and makes
+  `python-standards` + `python-testing` mandatory in Build, `python-testing` in QA and `python-standards` in
+  Review; `python-scaffold`, `python-verify` and `python-web` are conditional. The setup union adds all five;
+  an unknown stack fails closed (exit 64).
+- ✨ **Python onboarding.** Detect `pyproject.toml` + `uv.lock` at the root or in one subdirectory, install the
+  five skills, stage `CODING_STANDARDS.md` / `scripts/check.sh` / `scripts/size_check.py` with
+  `python-scaffold --gate-only`, show the diff, refuse pre-existing drift without `--force`, write once at
+  step 8, and write `docs/super-board/pre-flight-python.md` only when missing.
+- ✨ **`python-scaffold` 1.2.0.** `--gate-only` renders only the three managed files, so an existing repo gets
+  the standards and the gate without a second app skeleton (`ratopythonista/skills@7869a73`).
+- ✨ **Lane vocabulary.** `decision-policy.md` routes Python standards, tests, generation, gate and web profile
+  to the pack; `CODING_STANDARDS.md` at `stack.root` outranks every skill.
+- 📝 **Docs.** [OMP + Python](docs/omp-python.md) documents the `stack` config and the managed files;
+  [Development flow](docs/flow.md) describes the Python side as the pack, not a single test skill; the Python
+  lane figure and the root map were updated.
+- 🧪 **Proven in the lab.** Card #42 (remove a team before the schedule) went Build → QA → Review and merged
+  through the gate (PR ratopythonista/super-board-lab#43): 99 tests + 4 e2e, 99.32% coverage, truth-check
+  90/100; lane costs US$ 0.044 / 0.049 / 0.093.
+
 ## v3.4.0 — 2026-11-10
 
 OMP becomes a first-class host and lane backend (ADR-0031, #94).

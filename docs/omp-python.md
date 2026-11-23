@@ -25,7 +25,7 @@ Nothing here is upstream-specific: the pack is MIT, the fork only adds the OMP b
 cd /path/to/project
 SUPER_BOARD_REPO=ratopythonista/super-board \
   curl -fsSL https://raw.githubusercontent.com/ratopythonista/super-board/main/get.sh \
-  | bash -s -- --ref v3.4.0-omp.1 --hosts=omp
+  | bash -s -- --ref v3.5.0-omp.1 --hosts=omp
 ```
 
 - `SUPER_BOARD_REPO` makes `get.sh` fetch the fork instead of `EricTechPro/super-board`.
@@ -52,6 +52,11 @@ From a checkout you already have:
 | `.claude/super-board/` | created by `onboard`: configs, worktrees, ledgers, rejected lane diagnostics |
 | `AGENTS.md` | the managed block (pack version) is written by `onboard`; a re-install only refreshes it |
 
+On a Python board, `onboard` also materializes the pack at `stack.root`: the five skills under
+`.agents/skills/`, then `CODING_STANDARDS.md`, `scripts/check.sh`, `scripts/size_check.py` and
+`docs/super-board/pre-flight-python.md` (the pre-flight only when missing). Drift is
+`python-scaffold --check`, never an edit in place.
+
 Verify the result before trusting it:
 
 ```bash
@@ -74,7 +79,9 @@ npx skills add https://github.com/obra/superpowers/tree/main/skills/verification
 ## Configure the board
 
 `/super-board onboard` writes `.claude/super-board/configs/<slug>.json`. It asks the questions; the file is
-what the scripts read. A Python board differs from the default in five places:
+what the scripts read. On a Python repo it also installs the five pack skills, materializes
+`CODING_STANDARDS.md` and `scripts/` with `python-scaffold --gate-only`, and writes the pre-flight once.
+A Python board differs from the default in these places:
 
 ```jsonc
 {
@@ -110,6 +117,10 @@ what the scripts read. A Python board differs from the default in five places:
 }
 ```
 
+- **`stack` selects the pack.** `{"name": "python", "profile": "web", "root": "python"}`. Onboarding writes it
+  from `pyproject.toml` + `uv.lock` (root, or one subdirectory) and the resolver requires the Python skills per
+  lane. `root` is `"."` when the project is at the repo root; the managed files and `CODING_STANDARDS.md` live
+  there.
 - **`verify_commands` must be non-empty.** The merge gate refuses to merge on faith; a missing list halts
   setup. These two run in Build and again at the gate, pinned to the reviewed commit; `check.sh` is the
   canonical gate (ruff, `ruff format --check`, `ty`, size-check and pytest with coverage).
