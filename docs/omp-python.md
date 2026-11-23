@@ -80,15 +80,14 @@ what the scripts read. A Python board differs from the default in five places:
 {
   "project": { "owner": "you", "title": "your-project", "number": 5 },
   "host": "omp",
+  "stack": { "name": "python", "profile": "web", "root": "python" },
   "base_branch": "main",
   "columns": ["Backlog", "Ready", "Building", "QA", "Review", "Blocked", "Done"],
   "merge_policy": { "default": "auto" },
   "human_approves_merge": false,
   "verify_commands": [
-    "cd python && uv sync --frozen --quiet",
-    "cd python && uv run --frozen ruff check .",
-    "cd python && uv run --frozen ruff format --check .",
-    "cd python && uv run --frozen python -m pytest -q"
+    "cd python && uv sync --frozen",
+    "cd python && bash scripts/check.sh"
   ],
   "paths": { "pre_flight_md": "docs/super-board/pre-flight-python.md" },
   "omp": {
@@ -112,7 +111,8 @@ what the scripts read. A Python board differs from the default in five places:
 ```
 
 - **`verify_commands` must be non-empty.** The merge gate refuses to merge on faith; a missing list halts
-  setup. These four run in Build and again at the gate, pinned to the reviewed commit.
+  setup. These two run in Build and again at the gate, pinned to the reviewed commit; `check.sh` is the
+  canonical gate (ruff, `ruff format --check`, `ty`, size-check and pytest with coverage).
 - **E2E stays out of them.** Playwright is slow; it belongs to the QA lane, where the prompt can wait.
 - **`worker_backend` is inert under OMP.** It is a Claude-era key (`workflow` vs `claude-p`); under OMP the
   host has no Workflow tool, so `--omp` alone selects the headless `omp -p` lanes. Leaving the key in a
@@ -135,27 +135,41 @@ Plain `run` inside an OMP session counts as `--omp`. Review only runs with the e
 host-switched plain run): it is the lane that merges. The lane command, the role table and what the caps end are
 in [The OMP lane](omp-lane.md).
 
-## Python lane skills
+## Python pack skills
 
-![The Python lane: verify_commands, the pytest-fasthtml skill, Playwright in QA](assets/flow/python.svg)
-
-The pack assumes TS/JS for its own mechanics. For pytest + FastHTML, install the skill published from
-`ratopythonista/skills`:
+The five pack skills come from `ratopythonista/skills`. Onboarding installs them when the config has
+`"stack": {"name": "python", …}` (step 1) and the resolver makes them mandatory per lane; installing by hand
+is the same five URLs:
 
 ```bash
-npx skills add https://github.com/ratopythonista/skills/tree/main/skills/pytest-fasthtml
+for s in python-standards python-scaffold python-verify python-testing python-web; do
+  npx -y skills@latest add "https://github.com/ratopythonista/skills/tree/main/skills/$s" -y
+done
 ```
 
-Then name it on the card, so the lane loads it instead of guessing:
+`pytest-fasthtml` is not part of the pack and stays out of a Django project. The resolver reads `stack.name`
+from the active config (`--stack python` overrides it) and requires:
+
+| Lane | Mandatory | Conditional, rechecked with `--require` |
+| --- | --- | --- |
+| Build | `python-standards`, `python-testing` | `python-scaffold`, `python-verify`, `python-web` |
+| QA | `python-testing` | `python-verify`, `python-web` |
+| Review | `python-standards` | — |
+
+The scaffold owns three managed files at `stack.root`: `CODING_STANDARDS.md`, `scripts/check.sh` and
+`scripts/size_check.py`. Onboarding materializes them with `python-scaffold --gate-only` (no second app
+skeleton) and writes `[tool.pack-python]` once; drift is `scaffold.py --check`, not an edit in place.
+A card may still name the profile explicitly:
 
 ```md
 ## Card
 
 …
 
-Skills: pytest-fasthtml, mattpocock-skills:tdd
+Skills: python-web, python-testing, python-verify
 ```
 
-`Skills:` replaces the Build lane's default skill line; always-listed helpers stay listed. The skill covers
-placement (unit vs integration vs e2e), fixtures, async handlers, HTMX requests, Playwright and the
-`uv run pytest` / `uv run ruff` commands — the same four commands as `verify_commands`, run from `python/`.
+`Skills:` replaces the Build lane's default label row; the mandatory Python rows and the always-listed helpers
+stay. The pack's contract is in
+[`pack-python`](https://github.com/ratopythonista/skills/blob/main/pack.json), and
+`CODING_STANDARDS.md` in the repo outranks every skill.

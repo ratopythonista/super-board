@@ -114,6 +114,19 @@
   // `{path, remote}`. `remote` can be `null` for local-only (no pull requests).
   "repo": { "path": ".", "remote": "https://github.com/<owner>/<repo>" },
 
+  // Optional stack marker. Absent means the TS/JS mechanics: vitest for unit and
+  // integration tests, Playwright for browser e2e, and no Python install.
+  // "python" switches onboarding, the skill-readiness resolver and the lane
+  // vocabulary to the Pack Python. `profile` is the python-scaffold template set
+  // ("web" in v1); `root` is the directory holding `pyproject.toml` and `uv.lock`
+  // ("." at the repo root, "python" for a repo with a Python subproject).
+  // Onboard writes it from detection; lanes never guess it.
+  "stack": {
+    "name": "python",
+    "profile": "web",
+    "root": "."
+  },
+
   // The branch all per-issue branches are cut from and squash-merged back into.
   // Default `"main"`. Onboard warns and suggests `"staging"` or `"develop"` if
   // `main` appears to be production.

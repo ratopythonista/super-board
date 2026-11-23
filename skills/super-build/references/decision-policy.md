@@ -37,9 +37,14 @@ column is the skill to invoke.
 | Decide *which kind* of test a change needs | `testing-strategy` |
 | Write a unit or integration test (TS/JS) | `vitest` |
 | Write a browser e2e spec | `playwright-best-practices` |
+| Python norm: structure, typing, naming, sizes | `python-standards` |
+| Write a Python unit or integration test | `python-testing` |
+| Generate or regenerate a Python app or its managed gate | `python-scaffold` |
+| Python gate, drift and coverage | `python-verify` |
+| Python web profile: Django, HTMX, Tailwind, Granian | `python-web` |
 
-The last four have no equivalent in the Matt Pocock pack and are kept as-is.
-Everything else routes through `mattpocock-skills:*`.
+The TS/JS mechanics and the Pack Python rows answer the same intents in different stacks; the config's
+`stack.name` picks the set (see "Python stack" below).
 
 **Interactive-only, never inside a worker.** These need a human at the keyboard
 and belong to the `lint` verb, not to a lane:
@@ -63,8 +68,10 @@ been caught by `lint`. Take the human gate instead — see below.
   collaborators → integration; (3) drive a browser → e2e; (4) needs a live
   third party → not a test, file a mock/contract gap. Write it at the rung you
   stopped on, not the rung you found it on.
-- **Mechanics** — the repo decides the library, so read `package.json`. TS/JS
-  unit and integration → `vitest`. Browser e2e → `playwright-best-practices`.
+- **Mechanics** — the repo decides the library and the language. `pyproject.toml` with
+  `stack.name == "python"` → `python-testing` for pytest-django unit and integration tests;
+  browser e2e → `python-testing` + `python-web`. `package.json` → TS/JS unit and integration
+  use `vitest`; browser e2e uses `playwright-best-practices`.
 
 `testing-strategy` informs *coverage* (what a component type is worth testing,
 what to skip) — it does not decide placement.
@@ -129,6 +136,24 @@ replaces the row, it does not extend it. Label routing applies only when no
 **Multiple type labels** — take the first row that matches, reading the table
 top to bottom. A card labelled both `bug` and `refactor` is a bug first; the
 refactor is a separate card.
+
+## Python stack
+
+The board config selects the pack, not the ticket prose. When the active config has
+`"stack": {"name": "python", "profile": "web", "root": "<dir>"}`, the resolver makes these mandatory
+for every card:
+
+| Lane | Mandatory | Conditional, rechecked before use |
+| --- | --- | --- |
+| Build | `python-standards`, `python-testing` | `python-scaffold` (new repo, regeneration, drift), `python-verify` (gate/`check.sh`), `python-web` (web profile) |
+| QA | `python-testing` | `python-verify`, `python-web` |
+| Review | `python-standards` | — |
+
+The label row still picks the intent (`bug`, `feature`, `docs`, …). The stack picks the vocabulary, so the
+two compose; `Skills:` replaces the label row but never removes the mandatory Python rows. Read
+`CODING_STANDARDS.md` at `stack.root` first: it outranks every skill. The TS/JS conditional helpers
+(`vitest`, `playwright-best-practices`) are skipped in a Python repo; `mattpocock-skills:tdd` and
+`testing-strategy` still apply.
 
 ## Simplest solution first
 

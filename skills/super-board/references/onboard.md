@@ -142,6 +142,13 @@ Write it atomically (temp file + rename) after every answer. A halt never loses 
    ├─ collect signals: Sentry (@sentry/* / sentry-sdk in manifests, Sentry.init(, .sentryclirc),
    │    PostHog (posthog-js / posthog-node / posthog, posthog.init(, NEXT_PUBLIC_POSTHOG_* names);
    │    key names: bash $SB/super-board-env-check.sh SENTRY_AUTH_TOKEN POSTHOG_PERSONAL_API_KEY
+   ├─ Python stack: `pyproject.toml` + `uv.lock` at the repo root or in exactly ONE
+   │    subdirectory (python/, backend/, …). Record `stack: {name: "python",
+   │    profile: <[tool.pack-python].profile | "web">, root: <dir>}`, the project
+   │    (`[project].name`) and the package (`[tool.pack-python].package` | normalized
+   │    name). No `uv.lock` → halt: "Run `cd <dir> && uv lock` first — the gate runs
+   │    `uv sync --frozen`." Two or more candidates → AskUserQuestion "Which Python
+   │    project?" with one option per directory (newest lock Recommended).
    ├─ verification commands: preserve valid `verify_commands`; otherwise inspect the owning
    │    project's documented checks and stage those commands. Unresolved checks are a setup
    │    halt. Never save placeholders or invent a universal runner.
@@ -178,6 +185,13 @@ Write it atomically (temp file + rename) after every answer. A halt never loses 
    │    git or gh → halt: "Without <tool> the board can't <why>. Your answers are saved — run
    │    the command, then re-run onboard."
    ├─ Re-check (`check --text`) after every install; move on only when it says all green.
+   ├─ Python stack → install the five pack skills, one URL per skill (the whole-repo form
+   │    would also install pytest-fasthtml):
+   │      for s in python-standards python-scaffold python-verify python-testing python-web; do
+   │        npx -y skills@latest add "https://github.com/ratopythonista/skills/tree/main/skills/$s" -y
+   │      done
+   │    `pytest-fasthtml` stays out. The scaffold refuses a partial pack by name; that is a
+   │    halt, never "mostly installed". Re-check; list `✓ pack Python installed (5 skills)`.
    ├─ Workflow runtime: syntax-check the installed workflow (same command run.md uses):
    │      { echo '(async function(){'; sed 's/^export const meta/const meta/' \
    │        .claude/workflows/super-board-wave.js; echo '})'; } | node --check --input-type=module
@@ -279,9 +293,19 @@ Write it atomically (temp file + rename) after every answer. A halt never loses 
    │    Then one tool line: Bash(super-board-agents-md.py coverage && check) ⎿ 31/31 rules kept ·
    │    118 lines. Written at step 8.
    ├─ Only the section → stage `block --create`; a CLAUDE.md alone gets `@AGENTS.md` prepended.
-   └─ Writing standard, always, no question: stage docs/agents/issue-tracker.md with a
+   ├─ Writing standard, always, no question: stage docs/agents/issue-tracker.md with a
       `## Ticket format` section from references/ticket-format.md (create, or replace only that
       section). The block's "Writing (super-board)" table links it and writing-standard.md.
+   └─ Python stack, always, no question: render the managed files, never by hand:
+        python3 .claude/skills/python-scaffold/scripts/scaffold.py --profile <profile>
+          --project <name> --package <pkg> --target .claude/super-board/onboard-staged/python --gate-only
+      Show the diff of `CODING_STANDARDS.md`, `scripts/check.sh` and `scripts/size_check.py` against
+      `stack.root`. A managed file that already exists and differs is drift: run the same command
+      with `--check` against the repo, show that diff and HALT. `--force` only after explicit
+      approval; "Write everything" does not authorize overwriting drift. Also stage the canonical
+      `verify_commands` — `cd <root> && uv sync --frozen`, `cd <root> && bash scripts/check.sh`
+      (drop the `cd` when root is ".") — and `references/pre-flight-python.md` when
+      `paths.pre_flight_md` is missing.
 
 6. 🛡️ POLICIES — ONE AskUserQuestion call, two questions; details folded
    Q1 header "Rules", "Use the safe defaults?"
@@ -369,6 +393,13 @@ Write it atomically (temp file + rename) after every answer. A halt never loses 
    │    │    paths, merge_policy, migrations, collect (incl. custom), notifications {channel:
    │    │    "session", bot_identity}, worker_backend "workflow", host (always: `bash $SB/super-board-host.sh`;
    │    │    on exit 65 ask claude/codex/opencode/omp), verify_commands (non-blank project checks). No `variant`.
+   │    │    Python stack: include `stack: {name, profile, root}` and the canonical two commands.
+   │    ├─ Python stack: add `[tool.pack-python]` (`profile`, `package`) to `pyproject.toml` ONLY
+   │    │    when the table is missing (an invalid existing table halts with the field); then run
+   │    │    `scaffold.py --gate-only` against `stack.root` with the same profile/project/package,
+   │    │    copy the staged pre-flight only if `paths.pre_flight_md` was missing, and delete
+   │    │    `onboard-staged/python`. The scaffold preserves the local keep block; `--force` only
+   │    │    after the approval recorded at step 5.
    │    ├─ .claude/super-board/active ← <slug>
    │    ├─ .gitignore += .claude/super-board/active, onboard-answers.json, onboard-staged/,
    │    │    backup/, inflight/, migrations/, rejected/, upgrade.json (all under .claude/super-board/)
@@ -459,6 +490,9 @@ answers are kept and it resumes at <step>".
 | 1 | A tool install declined (git, gh) | `Without <tool> the board can't <why>. Your answers are saved — run <command>, then re-run onboard.` |
 | 1 | Node declined, or `npx skills add` fails | `⚠️ Required worker skills remain unavailable: <exact names>. Install for <host> and restart.` Setup stays red; dispatch halts before claims. |
 | 1 | Workflow still fails `node --check` after the re-copy | `🛑 .claude/workflows/super-board-wave.js is corrupt. Re-run ./install.sh <this-dir> — don't hand-edit it.` |
+| 0 | Python project without `uv.lock` | `🛑 <dir> has no uv.lock. Run cd <dir> && uv lock, then re-run onboard — the gate runs uv sync --frozen.` |
+| 1 | Python pack partially installed | `⚠️ Pack Python incomplete: <names>. Install them as a set: npx -y skills@latest add <url> … Then re-run onboard.` |
+| 5 | A managed file already exists and differs | Show the `--check` diff. `✋ CODING_STANDARDS.md (or scripts/…) differs from the pack. Fixed the source? Re-run with --force after approving, or restore the managed file. Nothing was written.` |
 | 1 | settings.json invalid JSON | `✋ .claude/settings.json is not valid JSON; I left it untouched. Fix it, then re-run — only the settings entries repeat.` |
 | 2 | Scope refused in the browser | `🔑 GitHub asked for project,read:project,repo and you said no. Without them I can't read or move cards. Re-run: gh auth refresh -s project,read:project,repo.` |
 | 2 | Repo create refused | `📦 GitHub refused to create the repo (org admin required, or the free-repo quota). Pick an existing repo, or create one in the web UI, then re-run.` |
@@ -493,7 +527,8 @@ remove a pending recovery record; use its saved state to reconcile a conflict be
 
 1. **Config validates** — `.claude/super-board/configs/<slug>.json` parses, has every required
    field from `config-schema.json` (incl. `notifications.bot_identity`, `merge_policy`,
-   `migrations`), has no `variant`, and `columns` is the seven.
+   `migrations`), has no `variant`, and `columns` is the seven. A `stack`, when present, is
+   `{name: "python", profile: "web", root: <dir with pyproject.toml>}`.
 2. **Active pointer** — `.claude/super-board/active` holds exactly the slug + `\n`.
 3. **Board columns and labels** — `gh project field-list <n> --owner <o>` returns Backlog, Ready,
    Building, QA, Review, Blocked, Done (no Skipped); `gh label list` has qa, bug, feature.

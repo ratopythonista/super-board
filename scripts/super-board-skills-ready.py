@@ -40,6 +40,15 @@ REGISTRY = {
     'fallbacks': {'ponytail:ponytail': {'id': 'simplest-solution-first', 'source': POLICY + '#simplest-solution-first'},
                   'ponytail:ponytail-review': {'id': 'over-engineering-ladder', 'source': 'skills/super-review/SKILL.md#over-engineering'}},
 }
+# The Pack Python is selected by the config's `stack.name`, never by a label:
+# a TS/JS repo and a Python repo share the same board labels.
+PYTHON_SKILLS = ['python-standards', 'python-scaffold', 'python-verify', 'python-testing', 'python-web']
+PYTHON_LANES = {
+    'build': {'required': ['python-standards', 'python-testing'],
+              'conditional': ['python-scaffold', 'python-verify', 'python-web']},
+    'qa': {'required': ['python-testing'], 'conditional': ['python-verify', 'python-web']},
+    'review': {'required': ['python-standards'], 'conditional': []},
+}
 CORE = ['super-board', 'super-build', 'super-qa', 'super-review', 'super-collect', 'visual', 'git-sync', 'ui-refine-loop', 'pr-security-review']
 LANES = ['build', 'qa', 'review']
 NAME = re.compile(r'[a-zA-Z0-9][a-zA-Z0-9._-]*(?::[a-zA-Z0-9][a-zA-Z0-9._-]*)?\Z')
@@ -125,7 +134,37 @@ def canonical(name):
     return name
 
 
-def requirements(card, lane=None, require=()):
+def stack_of(root, override=None):
+    """Return (stack name or None, source label). `--stack` wins over the active config."""
+    if override:
+        return override, '--stack ' + override
+    base = Path(root) / '.claude/super-board'
+    config = None
+    active = base / 'active'
+    if active.is_file():
+        slug = active.read_text(encoding='utf-8').strip()
+        candidate = base / 'configs' / (slug + '.json') if slug else None
+        if candidate is not None and candidate.is_file():
+            config = candidate
+    if config is None and (base / 'configs').is_dir():
+        configs = sorted((base / 'configs').glob('*.json'))
+        if len(configs) == 1:
+            config = configs[0]
+    if config is None:
+        return None, 'no active config'
+    try:
+        data = json.loads(config.read_text(encoding='utf-8'))
+    except (OSError, ValueError) as error:
+        raise ValueError('cannot read ' + str(config) + ': ' + str(error))
+    stack = data.get('stack') if isinstance(data, dict) else None
+    if stack is None:
+        return None, 'no stack'
+    if not isinstance(stack, dict) or stack.get('name') != 'python' or not isinstance(stack.get('root'), str):
+        raise ValueError('unsupported stack in ' + str(config) + '; expected {"name": "python", "root": …}')
+    return 'python', 'stack: python + ' + os.path.relpath(config, root)
+
+
+def requirements(card, lane=None, require=(), stack=None, stack_source=''):
     explicit = override(card['body'])
     selected = remaining(card, lane)
     for current in selected:
@@ -147,6 +186,10 @@ def requirements(card, lane=None, require=()):
         rows += [(name, 'required', source) for name in REGISTRY['boundaries'][current]]
         rows += [(name, 'conditional', source) for name in REGISTRY['conditional'][current]]
         rows += [(name, 'optional', source) for name in REGISTRY['optional'][current]]
+        if stack == 'python':
+            spec = PYTHON_LANES[current]
+            rows += [(name, 'required', stack_source) for name in spec['required']]
+            rows += [(name, 'conditional', stack_source) for name in spec['conditional']]
         rows += [(worker_name(name), 'required', 'activation: --require + ' + source) for name in require]
         grouped = {}
         for name, requirement, origin in rows:
@@ -396,7 +439,8 @@ class Inventory:
         return None, None
 
 
-def report(root, host, cards=None, profile=None, lane=None, require=(), home=None, catalog=None):
+def report(root, host, cards=None, profile=None, lane=None, require=(), home=None, catalog=None,
+           stack=None, stack_source=''):
     if not profile and cards == []:
         return dict(ready=True, host=host, entries=[], searched_surfaces=[], remediation='')
     inventory = Inventory(root, host, home, catalog)
@@ -407,11 +451,13 @@ def report(root, host, cards=None, profile=None, lane=None, require=(), home=Non
         if (not isinstance(card, dict) or (card.get('number') is not None and (type(card['number']) is not int or card['number'] < 1))
                 or ('number' in card and card['number'] is None and not profile) or 'number' not in card or 'body' not in card):
             raise ValueError('each card needs number, status and literal body')
-        chain = list(requirements(card, lane, require))
+        chain = list(requirements(card, lane, require, stack, stack_source))
         if profile:
             chain += [('setup', name, 'required', 'boundary: setup nine-skill installation') for name in CORE]
             for _, names in REGISTRY['build_rows']:
                 chain += [('build', name, 'required', 'label: ' + POLICY) for name in names]
+            if stack == 'python':
+                chain += [('setup', name, 'required', stack_source) for name in PYTHON_SKILLS]
         seen = set()
         for current, name, requirement, source in chain:
             if (current, name) in seen:
@@ -468,6 +514,7 @@ def main(argv=None):
     selection.add_argument('--profile', choices=['setup'])
     parser.add_argument('--lane', choices=LANES)
     parser.add_argument('--require', action='append', default=[])
+    parser.add_argument('--stack', choices=['python'], help='override the active config stack')
     parser.add_argument('--home', default=os.environ.get('SUPER_BOARD_SKILLS_HOME'))
     parser.add_argument('--catalog', default=os.environ.get('SUPER_BOARD_SKILLS_CATALOG'))
     parser.add_argument('--hydrate', action='store_true')
@@ -482,7 +529,9 @@ def main(argv=None):
             raise ValueError('cards must be an array')
         if args.hydrate and cards is not None:
             hydrate(cards, args.root)
-        result = report(args.root, args.host, cards, args.profile, args.lane, args.require, args.home, args.catalog)
+        stack, stack_source = stack_of(args.root, args.stack)
+        result = report(args.root, args.host, cards, args.profile, args.lane, args.require, args.home, args.catalog,
+                        stack, stack_source)
         print(json.dumps(result))
         for entry in result['entries']:
             if entry['status'] == 'missing':

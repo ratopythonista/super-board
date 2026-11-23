@@ -41,6 +41,27 @@ class Readiness(unittest.TestCase):
         self.assertEqual(process.returncode, expected, process.stderr)
         return json.loads(process.stdout) if process.stdout else process.stderr
 
+    def config(self, stack=None, name='board', raw=None):
+        base = self.root / '.claude/super-board'
+        (base / 'configs').mkdir(parents=True, exist_ok=True)
+        data = {'project': {'owner': 'owner', 'title': 'Board', 'number': 1}}
+        if stack is not None:
+            data['stack'] = stack
+        (base / 'configs' / (name + '.json')).write_text(
+            raw if raw is not None else json.dumps(data))
+        (base / 'active').write_text(name + '\n')
+
+    def python(self):
+        for name in ['python-standards', 'python-scaffold', 'python-verify', 'python-testing', 'python-web']:
+            self.put(name)
+
+    def run_profile(self, extra=(), host='claude', expected=0):
+        process = subprocess.run([sys.executable, str(CLI), '--root', str(self.root), '--host', host,
+                                  '--home', str(self.home), '--profile', 'setup', *extra],
+                                 text=True, capture_output=True)
+        self.assertEqual(process.returncode, expected, process.stderr)
+        return json.loads(process.stdout) if process.stdout else process.stderr
+
     def test_complete_partial_lock_and_grilling_are_distinct(self):
         (self.root / 'skills-lock.json').write_text('{"mattpocock/skills":true}')
         self.put('grilling'); self.put('tdd')
@@ -346,6 +367,48 @@ class Readiness(unittest.TestCase):
             diagnostic = self.run_cli(expected=64)
             self.assertIn('Claude', diagnostic)
             self.assertNotIn('Traceback', diagnostic)
+
+    def test_python_stack_requires_pack_skills_per_lane(self):
+        self.full(); self.python()
+        self.config({'name': 'python', 'profile': 'web', 'root': '.'})
+        result = self.run_cli()
+        self.assertTrue(result['ready'])
+        by = {(e['lane'], e['name']): e for e in result['entries']}
+        self.assertEqual(by[('build', 'python-standards')]['requirement'], 'required')
+        self.assertEqual(by[('build', 'python-standards')]['status'], 'resolved')
+        self.assertEqual(by[('build', 'python-testing')]['requirement'], 'required')
+        self.assertEqual(by[('build', 'python-web')]['requirement'], 'conditional')
+        self.assertEqual(by[('build', 'python-web')]['status'], 'skipped')
+        self.assertEqual(by[('qa', 'python-testing')]['requirement'], 'required')
+        self.assertEqual(by[('review', 'python-standards')]['requirement'], 'required')
+        self.assertNotIn(('review', 'python-testing'), by)
+        self.assertIn('stack: python', by[('build', 'python-standards')]['source'])
+
+    def test_python_missing_required_skill_and_ts_conditionals(self):
+        self.full(); self.python()
+        self.config({'name': 'python', 'profile': 'web', 'root': '.'})
+        (self.root / '.claude/skills/python-standards/SKILL.md').unlink()
+        result = self.run_cli(expected=10)
+        missing = [(e['lane'], e['name']) for e in result['entries'] if e['status'] == 'missing']
+        self.assertEqual([('build', 'python-standards'), ('review', 'python-standards')], missing)
+        self.assertEqual(next(e for e in result['entries'] if e['name'] == 'vitest')['status'], 'skipped')
+
+    def test_python_setup_union_and_stack_override(self):
+        self.full()
+        self.config({'name': 'python', 'profile': 'web', 'root': 'python'})
+        missing = [e['name'] for e in self.run_profile(expected=10)['entries']
+                   if e['lane'] == 'setup' and e['status'] == 'missing']
+        self.assertEqual(sorted(missing), ['python-scaffold', 'python-standards', 'python-testing',
+                                           'python-verify', 'python-web'])
+        self.python()
+        self.assertTrue(self.run_profile()['ready'])
+        self.assertTrue(self.run_profile(['--stack', 'python'])['ready'])
+
+    def test_unknown_stack_fails_closed(self):
+        self.full()
+        self.config({'name': 'node', 'root': '.'})
+        diagnostic = self.run_cli(expected=64)
+        self.assertIn('unsupported stack', diagnostic)
 
     def test_setup_union_reports_every_unconditional_requirement(self):
         self.full()
