@@ -81,7 +81,11 @@ The flow above is the pack's. This fork changes two things in it:
 
 - **The host**: every lane is an `omp -p` process instead of Claude's Workflow tool, with model roles resolved from
   the board config and flat cost/time caps per lane. [The OMP lane](omp-lane.md).
-- **The Python side**: `verify_commands` built on `uv`/`ruff`/`pytest`, a Python pre-flight for the board, and a
-  published test skill. [OMP + Python project](omp-python.md).
+- **The Python side**: the Pack Python from `ratopythonista/skills`. The config's
+  `stack: {name: "python", profile, root}` selects it: the resolver requires `python-standards` and
+  `python-testing` in Build, `python-testing` in QA and `python-standards` in Review, and offers
+  `python-scaffold`, `python-verify` and `python-web` as conditional helpers. Onboarding installs the five,
+  materializes `CODING_STANDARDS.md` and `scripts/check.sh` with `python-scaffold --gate-only`, and the board's
+  `verify_commands` are `uv sync --frozen` + `bash scripts/check.sh`. [OMP + Python project](omp-python.md).
 
 Nothing else in the flow is fork-specific: skills, board columns, gates and policy are the upstream's.
