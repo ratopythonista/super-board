@@ -102,6 +102,22 @@ sys.exit(r.get('rc', 0))
         self.env['SB_GITHUB_READ_STRICT'] = '1'
         self.assertEqual(self.read([{'out': 'not json'}]).returncode, 79, 'fixed-command scripts still halt')
 
+    def test_agent_malformed_command_fails_that_call_without_reading(self):
+        # 2026-11-23: a single comment read with --slurp retried three times and halted the run.
+        r = self.read([{'rc': 1, 'err': '`--paginate` required when passing `--slurp`\n\nUsage: gh api <endpoint>'}],
+                      'comments', ['api', 'repos/o/r/issues/comments/7103137361', '--slurp'])
+        self.assertEqual((r.returncode, r.stdout), (64, ''), r.stderr)
+        self.assertFalse(self.log.exists(), 'the malformed read must not reach gh')
+        self.assertFalse(self.halt.exists(), 'caller shape must not halt other lanes')
+        self.assertIn('--kind object', r.stderr)
+
+    def test_cli_usage_error_is_the_callers_not_an_outage(self):
+        r = self.read([{'rc': 1, 'err': 'Usage: gh api <endpoint> [flags]'}], 'object',
+                      ['api', 'repos/o/r/issues/comments/1'])
+        self.assertEqual(r.returncode, 64, r.stderr)
+        self.assertEqual(self.log.read_text(), '1', 'a usage error must not be retried')
+        self.assertFalse(self.halt.exists())
+
     def test_no_mutation_can_be_retried(self):
         for command in [['pr', 'merge', '1'], ['issue', 'comment', '1'],
                         ['api', 'graphql', '-f', 'query=mutation { deleteIssue }'],

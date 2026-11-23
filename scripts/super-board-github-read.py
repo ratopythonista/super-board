@@ -130,6 +130,12 @@ def permanent_error(text):
                      r'Could not resolve to (?:a|an) |missing required scopes', text, re.I) is not None
 
 
+def usage_error(text):
+    """The caller's command is malformed; retrying cannot fix it."""
+    return re.search(r'(?m)^\s*Usage: gh\b|--paginate`? required when passing|unknown (?:flag|shorthand flag)',
+                     text) is not None
+
+
 def require(condition, why):
     if not condition:
         raise ValueError(why)
@@ -326,6 +332,9 @@ def validate(text, kind, meta=None):
 def read(args, kind='json', meta=None, recovering=False):
     if not read_only(args):
         raise ValueError('retry helper accepts read-only GitHub commands only')
+    if kind == 'comments' and re.search(r'/issues/comments/\d+', ' '.join(args)):
+        raise ValueError('--kind comments reads the issue comment list, not one comment; for one comment by id '
+                         'use --kind object -- api repos/<owner>/<repo>/issues/comments/<id>')
     # A diff read with no meta is the caller's malformed read, not missing evidence:
     # fail this call (exit 64), never retry or halt.
     if kind == 'diff' and not isinstance(meta, dict):
@@ -367,6 +376,13 @@ def read(args, kind='json', meta=None, recovering=False):
                     diagnostic += json.dumps([p.get('errors', []) for p in (payload if isinstance(payload, list) else [payload]) if isinstance(p, dict)])
                 except ValueError:
                     pass
+            if result.returncode and usage_error(result.stderr):
+                last = 'GitHub required read has a malformed command'
+                if not os.environ.get('SB_GITHUB_READ_STRICT'):
+                    form = FORMS.get(kind)
+                    hint = f' Valid form: --kind {kind} -- {form}' if form else ''
+                    raise ValueError(f'{last}; this call failed, the run continues.{hint}')
+                halt('GitHub rejected a required read (malformed command); fix it before restarting', attempt, operation)
             if permanent_error(diagnostic):
                 halt('GitHub rejected a required read (query, authentication, or permission error); fix it before restarting', attempt, operation)
             if result.returncode:
