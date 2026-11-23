@@ -23,12 +23,12 @@ Nothing here is upstream-specific: the pack is MIT, the fork only adds the OMP b
 
 ```bash
 cd /path/to/project
-SUPER_BOARD_REPO=ratopythonista/super-board \
-  curl -fsSL https://raw.githubusercontent.com/ratopythonista/super-board/main/get.sh \
-  | bash -s -- --ref v3.5.0-omp.1 --hosts=omp
+curl -fsSL https://raw.githubusercontent.com/ratopythonista/super-board/main/get.sh \
+  | SUPER_BOARD_REPO=ratopythonista/super-board bash -s -- --ref v3.5.0-omp.1 --hosts=omp
 ```
 
-- `SUPER_BOARD_REPO` makes `get.sh` fetch the fork instead of `EricTechPro/super-board`.
+- `SUPER_BOARD_REPO` makes `get.sh` fetch the fork instead of `EricTechPro/super-board`. It must reach
+  `bash`, not `curl`: prefixing only the `curl` call leaves the installer with the upstream default.
 - `--ref` pins the release tag (or a branch, e.g. `main` for the fork's tip). Omit it and `get.sh` uses the
   fork's latest release — which is this same tag.
 - `--hosts=omp` links `.omp/` as well as `.claude/`. Use the **`=` form**: `get.sh` passes unknown flags
