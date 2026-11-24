@@ -34,8 +34,9 @@ line+branch floor. The board's `verify_commands` are `uv sync --frozen` plus
 - NEVER read, print or source `.env`; key names only, through
   `.claude/bin/super-board-env-check.sh`.
 - NEVER hand-edit `uv.lock`; change `pyproject.toml` and run `uv lock`.
-- NEVER edit `CODING_STANDARDS.md`, `scripts/check.sh` or `scripts/size_check.py`
-  in place: they are managed by the pack. Fix the skill template instead.
+- NEVER edit `CODING_STANDARDS.md`, `scripts/check.sh`, `scripts/size_check.py`, `.github/workflows/ci.yml`,
+  `.github/dependabot.yml`, `scripts/audit.sh` or `scripts/release.sh` in place: they are managed by the pack.
+  Fix the skill template instead.
 - NEVER compile CSS by editing `app.css` by hand; change `input.css` or the
   template and run `build_css.sh`.
 - Migrations follow `migrations.allowed_envs`; a destructive schema change is

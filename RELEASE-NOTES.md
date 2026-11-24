@@ -1,5 +1,26 @@
 # Release notes
 
+## v3.5.1-omp.1 — 2026-11-24
+
+Two installer fixes and the Pack Python delivery path (#126, #136).
+
+- 🐛 **Install env reaches `bash`.** `SUPER_BOARD_REPO` set only on the `curl` half left the installer with
+  the upstream default; the documented pipeline now passes it to `bash -s` (`0efc356`).
+- 🐛 **A malformed `gh` command fails the call, not the run.** The GitHub read helper propagates the failure
+  from the shell call instead of continuing with an empty result (`f83751f`).
+- ✨ **Fork tags may carry `-omp.N`.** `publish-release.sh` accepts `vX.Y.Z-omp.N` when `VERSION` carries the
+  same suffix, so a fork build becomes a GitHub Release instead of a tag that only works with `--ref`.
+- 🔧 **CI pinned to `ubuntu-24.04`.** `ubuntu-latest` moved to 26.04 and dropped Python 3.9; the matrix keeps 3.9/3.12 coverage, and the `main required checks` ruleset names the new contexts.
+- ✨ **Pack Python 6/6: `python-release`.** The delivery path is now part of the pack: a managed `ci.yml`
+  (`gate`, `audit`, `secrets`), weekly Dependabot for `uv` and Actions, `scripts/audit.sh` with
+  `.security/audit-ignores`, `scripts/release.sh` (check, bump, Keep a Changelog, annotated tag, GitHub
+  Release; libraries attach wheel and sdist), and a one-shot MIT `LICENSE`. `python-scaffold` 1.3.0 adds
+  `--delivery-only` and `[tool.pack-python].kind`; `python-standards` 1.1.0 gains the **Delivery** section.
+- 📝 **Onboarding installs six skills** and stages gate and delivery in two passes; `python-release` is
+  conditional in Build, QA and Review, never mandatory.
+- ⚠️ **The old tag stays as is.** `v3.5.0-omp.1` has no GitHub Release and does not contain either fix;
+  install it only with an explicit `--ref`, or move to `v3.5.1-omp.1`.
+
 ## v3.5.0 — 2026-11-23
 
 The Pack Python becomes part of the fork: onboarding installs it and the gate enforces it (#119, #130).

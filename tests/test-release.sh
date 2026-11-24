@@ -66,4 +66,20 @@ refused 'v3.0.2; echo unexpected' "$STUB_SHA"
 refused "$STUB_TAG" main
 export STUB_RELEASE_RC=1
 if publish "$STUB_TAG" "$STUB_SHA" >/dev/null 2>&1; then fail 'release failure was swallowed'; fi
-echo 'PASS: test-release.sh (matching tags, moved/missing tags, checkout, version, arguments, failure)'
+unset STUB_RELEASE_RC
+
+# Fork builds carry an -omp.N suffix; VERSION and the tag must carry the same one.
+printf '3.0.2-omp.1\n' > VERSION
+export STUB_MODE=lightweight STUB_TAG=v3.0.2-omp.1
+publish "$STUB_TAG" "$STUB_SHA" >/dev/null || fail 'suffixed tag rejected'
+python3 - "$RELEASE_LOG" "$STUB_SHA" <<'PY'
+import pathlib, sys
+args = pathlib.Path(sys.argv[1]).read_text().splitlines()
+assert args == ['release', 'create', 'v3.0.2-omp.1', '--verify-tag', '--target', sys.argv[2],
+                '--title', 'super-board v3.0.2-omp.1', '--generate-notes'], args
+PY
+refused 'v3.0.2-omp' "$STUB_SHA"
+refused 'v3.0.2-omp.x' "$STUB_SHA"
+refused 'v3.0.2-rc.1' "$STUB_SHA"
+refused 'v3.0.2-omp.2' "$STUB_SHA"
+echo 'PASS: test-release.sh (matching tags, suffix, moved/missing tags, checkout, version, arguments, failure)'

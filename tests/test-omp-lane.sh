@@ -95,7 +95,14 @@ last | jq -e '.config | contains("modelRoles:") and contains("hard: \"fake/hard\
   || fail 'the overlay carries modelRoles and retry fallback chains'
 last | jq -r '.config' > "$T/overlay.yml"
 overlay_chains '{"easy":["fake/easy-2"],"review":[],"task":[]}' 'lane overlay'
-last | jq -r '.args | map(tostring) | join(" ")' | grep -q -- '--max-cost 0.75 --max-time 30m' || fail 'review caps must be passed'
+last | jq -c '.args' > "$T/args.json"
+python3 - "$T/args.json" <<'PY'
+import json, sys
+args = json.loads(open(sys.argv[1]).read())
+pairs = list(zip(args, args[1:]))
+if ('--max-cost', '0.75') not in pairs or ('--max-time', '30m') not in pairs:
+    raise SystemExit(f'review caps must be passed: {args}')
+PY
 last | jq -r '.args | map(tostring) | join(" ")' | grep -q -- '--session-dir' || fail 'sessions need a private dir'
 # No configured chains still parse as an object, never null.
 jq 'del(.omp.retry)' "$T/config.json" > "$T/config-no-retry.json"
@@ -333,7 +340,7 @@ rm -f .claude/super-board/github-halt.json
 jq '.max_workers = 2' "$T/config.json" > "$T/config3.json"
 CARDS='[{"number":1,"status":"QA"},{"number":2,"status":"QA"}]'
 : > "$SB_OMP_TEST_LOG"
-SB_OMP_TEST_DELAY=1 bash "$KIT/scripts/super-board-omp-wave.sh" --config "$T/config3.json" --cards "$CARDS" --omp >"$T/out"
+SB_OMP_TEST_DELAY=3 bash "$KIT/scripts/super-board-omp-wave.sh" --config "$T/config3.json" --cards "$CARDS" --omp >"$T/out"
 jq -s -e 'map(.active) | max == 2' "$SB_OMP_TEST_LOG" >/dev/null || fail 'max_workers=2 must run QA lanes together'
 PARALLEL_LANES="docs/super-board/runs/$(date +%F)-config3-omp/lanes.jsonl"
 jq -s -e 'length >= 2 and all(.[]; has("card") and has("lane") and has("cost"))' "$PARALLEL_LANES" >/dev/null \

@@ -185,13 +185,13 @@ Write it atomically (temp file + rename) after every answer. A halt never loses 
    │    git or gh → halt: "Without <tool> the board can't <why>. Your answers are saved — run
    │    the command, then re-run onboard."
    ├─ Re-check (`check --text`) after every install; move on only when it says all green.
-   ├─ Python stack → install the five pack skills, one URL per skill (the whole-repo form
+   ├─ Python stack → install the six pack skills, one URL per skill (the whole-repo form
    │    would also install pytest-fasthtml):
-   │      for s in python-standards python-scaffold python-verify python-testing python-web; do
+   │      for s in python-standards python-scaffold python-verify python-testing python-web python-release; do
    │        npx -y skills@latest add "https://github.com/ratopythonista/skills/tree/main/skills/$s" -y
    │      done
    │    `pytest-fasthtml` stays out. The scaffold refuses a partial pack by name; that is a
-   │    halt, never "mostly installed". Re-check; list `✓ pack Python installed (5 skills)`.
+   │    halt, never "mostly installed". Re-check; list `✓ pack Python installed (6 skills)`.
    ├─ Workflow runtime: syntax-check the installed workflow (same command run.md uses):
    │      { echo '(async function(){'; sed 's/^export const meta/const meta/' \
    │        .claude/workflows/super-board-wave.js; echo '})'; } | node --check --input-type=module
@@ -299,9 +299,12 @@ Write it atomically (temp file + rename) after every answer. A halt never loses 
    └─ Python stack, always, no question: render the managed files, never by hand:
         python3 .claude/skills/python-scaffold/scripts/scaffold.py --profile <profile>
           --project <name> --package <pkg> --target .claude/super-board/onboard-staged/python --gate-only
-      Show the diff of `CODING_STANDARDS.md`, `scripts/check.sh` and `scripts/size_check.py` against
-      `stack.root`. A managed file that already exists and differs is drift: run the same command
-      with `--check` against the repo, show that diff and HALT. `--force` only after explicit
+        python3 .claude/skills/python-scaffold/scripts/scaffold.py --profile <profile>
+          --project <name> --package <pkg> --target .claude/super-board/onboard-staged/python --delivery-only
+      Show the diff of `CODING_STANDARDS.md`, `scripts/check.sh`, `scripts/size_check.py`,
+      `.github/workflows/ci.yml`, `.github/dependabot.yml`, `scripts/audit.sh`, `scripts/release.sh`
+      and `LICENSE` against `stack.root`. A managed file that already exists and differs is drift: run
+      `scaffold.py --check` against the repo, show that diff and HALT. `--force` only after explicit
       approval; "Write everything" does not authorize overwriting drift. Also stage the canonical
       `verify_commands` — `cd <root> && uv sync --frozen`, `cd <root> && bash scripts/check.sh`
       (drop the `cd` when root is ".") — and `references/pre-flight-python.md` when
@@ -394,12 +397,12 @@ Write it atomically (temp file + rename) after every answer. A halt never loses 
    │    │    "session", bot_identity}, worker_backend "workflow", host (always: `bash $SB/super-board-host.sh`;
    │    │    on exit 65 ask claude/codex/opencode/omp), verify_commands (non-blank project checks). No `variant`.
    │    │    Python stack: include `stack: {name, profile, root}` and the canonical two commands.
-   │    ├─ Python stack: add `[tool.pack-python]` (`profile`, `package`) to `pyproject.toml` ONLY
-   │    │    when the table is missing (an invalid existing table halts with the field); then run
-   │    │    `scaffold.py --gate-only` against `stack.root` with the same profile/project/package,
-   │    │    copy the staged pre-flight only if `paths.pre_flight_md` was missing, and delete
-   │    │    `onboard-staged/python`. The scaffold preserves the local keep block; `--force` only
-   │    │    after the approval recorded at step 5.
+   │    ├─ Python stack: add `[tool.pack-python]` (`profile`, `kind`, `package`) to `pyproject.toml`
+   │    │    ONLY when the table is missing (an invalid existing table halts with the field); `kind`
+   │    │    defaults to `app`; then run `scaffold.py --gate-only` and `--delivery-only` against
+   │    │    `stack.root` with the same profile/project/package, copy the staged pre-flight only if
+   │    │    `paths.pre_flight_md` was missing, and delete `onboard-staged/python`. The scaffold
+   │    │    preserves the local keep block; `--force` only after the approval recorded at step 5.
    │    ├─ .claude/super-board/active ← <slug>
    │    ├─ .gitignore += .claude/super-board/active, onboard-answers.json, onboard-staged/,
    │    │    backup/, inflight/, migrations/, rejected/, upgrade.json (all under .claude/super-board/)

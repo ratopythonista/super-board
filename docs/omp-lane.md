@@ -134,6 +134,7 @@ Failed and halted lanes keep their OMP session, stderr and `meta.json` under
 
 ## Versions
 
-`VERSION` is the fork's own line (`3.5.0` since the Pack Python landed). The tag carries the host
-suffix (`v3.5.0-omp.1`) so it cannot collide with the upstream's own release. Install by tag
-(`--ref v3.5.0-omp.1`) unless you deliberately want the moving tip (`--ref main`).
+`VERSION` is the fork's own line (`3.5.1-omp.1` since the delivery path landed). The tag carries the
+host suffix (`v3.5.1-omp.1`) so it cannot collide with the upstream's own release; the release workflow
+publishes it as a GitHub Release. Install by tag (`--ref v3.5.1-omp.1`) unless you deliberately want the
+moving tip (`--ref main`).

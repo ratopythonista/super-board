@@ -42,12 +42,14 @@ REGISTRY = {
 }
 # The Pack Python is selected by the config's `stack.name`, never by a label:
 # a TS/JS repo and a Python repo share the same board labels.
-PYTHON_SKILLS = ['python-standards', 'python-scaffold', 'python-verify', 'python-testing', 'python-web']
+PYTHON_SKILLS = ['python-standards', 'python-scaffold', 'python-verify', 'python-testing', 'python-web',
+                 'python-release']
 PYTHON_LANES = {
     'build': {'required': ['python-standards', 'python-testing'],
-              'conditional': ['python-scaffold', 'python-verify', 'python-web']},
-    'qa': {'required': ['python-testing'], 'conditional': ['python-verify', 'python-web']},
-    'review': {'required': ['python-standards'], 'conditional': []},
+              'conditional': ['python-scaffold', 'python-verify', 'python-web', 'python-release']},
+    'qa': {'required': ['python-testing'],
+           'conditional': ['python-verify', 'python-web', 'python-release']},
+    'review': {'required': ['python-standards'], 'conditional': ['python-release']},
 }
 CORE = ['super-board', 'super-build', 'super-qa', 'super-review', 'super-collect', 'visual', 'git-sync', 'ui-refine-loop', 'pr-security-review']
 LANES = ['build', 'qa', 'review']

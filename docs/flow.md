@@ -84,8 +84,9 @@ The flow above is the pack's. This fork changes two things in it:
 - **The Python side**: the Pack Python from `ratopythonista/skills`. The config's
   `stack: {name: "python", profile, root}` selects it: the resolver requires `python-standards` and
   `python-testing` in Build, `python-testing` in QA and `python-standards` in Review, and offers
-  `python-scaffold`, `python-verify` and `python-web` as conditional helpers. Onboarding installs the five,
-  materializes `CODING_STANDARDS.md` and `scripts/check.sh` with `python-scaffold --gate-only`, and the board's
-  `verify_commands` are `uv sync --frozen` + `bash scripts/check.sh`. [OMP + Python project](omp-python.md).
+  `python-scaffold`, `python-verify`, `python-web` and `python-release` as conditional helpers. Onboarding
+  installs the six, materializes `CODING_STANDARDS.md`, `scripts/check.sh` and the delivery files with
+  `python-scaffold --gate-only` + `--delivery-only`, and the board's `verify_commands` are
+  `uv sync --frozen` + `bash scripts/check.sh`. [OMP + Python project](omp-python.md).
 
 Nothing else in the flow is fork-specific: skills, board columns, gates and policy are the upstream's.
