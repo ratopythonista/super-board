@@ -58,7 +58,7 @@ def test_stamp_writes_version_into_every_placeholder():
 def test_stamp_refuses_a_malformed_version():
     with tempfile.TemporaryDirectory() as tmp:
         (Path(tmp) / "a.html").write_text("<span data-sb-version>dev</span>")
-        for bad in ["", "v3.3.0", "3.3", "3.3.0; rm -rf /"]:
+        for bad in ["", "v3.3.0", "3.3", "3.3.0; rm -rf /", "3.3.0-omp", "3.3.0-omp.x"]:
             assert stamp(Path(tmp), bad).returncode != 0, bad
 
 

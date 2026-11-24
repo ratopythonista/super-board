@@ -24,13 +24,14 @@ Nothing here is upstream-specific: the pack is MIT, the fork only adds the OMP b
 ```bash
 cd /path/to/project
 curl -fsSL https://raw.githubusercontent.com/ratopythonista/super-board/main/get.sh \
-  | SUPER_BOARD_REPO=ratopythonista/super-board bash -s -- --ref v3.5.0-omp.1 --hosts=omp
+  | SUPER_BOARD_REPO=ratopythonista/super-board bash -s -- --ref v3.5.1-omp.1 --hosts=omp
 ```
 
 - `SUPER_BOARD_REPO` makes `get.sh` fetch the fork instead of `EricTechPro/super-board`. It must reach
   `bash`, not `curl`: prefixing only the `curl` call leaves the installer with the upstream default.
 - `--ref` pins the release tag (or a branch, e.g. `main` for the fork's tip). Omit it and `get.sh` uses the
-  fork's latest release — which is this same tag.
+  fork's latest release, which is this same tag. The older `v3.5.0-omp.1` tag has no GitHub Release, so it
+  only works as an explicit `--ref`.
 - `--hosts=omp` links `.omp/` as well as `.claude/`. Use the **`=` form**: `get.sh` passes unknown flags
   through to `install.sh` but a bare `--hosts omp` would read `omp` as a second target folder.
 - Add `--protect-main` to block direct and force pushes to the base branch, and `--no-hooks` to leave
@@ -52,9 +53,10 @@ From a checkout you already have:
 | `.claude/super-board/` | created by `onboard`: configs, worktrees, ledgers, rejected lane diagnostics |
 | `AGENTS.md` | the managed block (pack version) is written by `onboard`; a re-install only refreshes it |
 
-On a Python board, `onboard` also materializes the pack at `stack.root`: the five skills under
-`.agents/skills/`, then `CODING_STANDARDS.md`, `scripts/check.sh`, `scripts/size_check.py` and
-`docs/super-board/pre-flight-python.md` (the pre-flight only when missing). Drift is
+On a Python board, `onboard` also materializes the pack at `stack.root`: the six skills under
+`.agents/skills/`, then `CODING_STANDARDS.md`, `scripts/check.sh`, `scripts/size_check.py`, the delivery
+files (`.github/workflows/ci.yml`, `.github/dependabot.yml`, `scripts/audit.sh`, `scripts/release.sh`,
+`LICENSE`) and `docs/super-board/pre-flight-python.md` (the pre-flight only when missing). Drift is
 `python-scaffold --check`, never an edit in place.
 
 Verify the result before trusting it:
@@ -79,8 +81,9 @@ npx skills add https://github.com/obra/superpowers/tree/main/skills/verification
 ## Configure the board
 
 `/super-board onboard` writes `.claude/super-board/configs/<slug>.json`. It asks the questions; the file is
-what the scripts read. On a Python repo it also installs the five pack skills, materializes
-`CODING_STANDARDS.md` and `scripts/` with `python-scaffold --gate-only`, and writes the pre-flight once.
+what the scripts read. On a Python repo it also installs the six pack skills, materializes
+`CODING_STANDARDS.md`, the gate and the delivery files with `python-scaffold --gate-only` +
+`--delivery-only`, and writes the pre-flight once.
 A Python board differs from the default in these places:
 
 ```jsonc
@@ -148,12 +151,12 @@ in [The OMP lane](omp-lane.md).
 
 ## Python pack skills
 
-The five pack skills come from `ratopythonista/skills`. Onboarding installs them when the config has
+The six pack skills come from `ratopythonista/skills`. Onboarding installs them when the config has
 `"stack": {"name": "python", …}` (step 1) and the resolver makes them mandatory per lane; installing by hand
-is the same five URLs:
+is the same six URLs:
 
 ```bash
-for s in python-standards python-scaffold python-verify python-testing python-web; do
+for s in python-standards python-scaffold python-verify python-testing python-web python-release; do
   npx -y skills@latest add "https://github.com/ratopythonista/skills/tree/main/skills/$s" -y
 done
 ```
@@ -163,13 +166,15 @@ from the active config (`--stack python` overrides it) and requires:
 
 | Lane | Mandatory | Conditional, rechecked with `--require` |
 | --- | --- | --- |
-| Build | `python-standards`, `python-testing` | `python-scaffold`, `python-verify`, `python-web` |
-| QA | `python-testing` | `python-verify`, `python-web` |
-| Review | `python-standards` | — |
+| Build | `python-standards`, `python-testing` | `python-scaffold`, `python-verify`, `python-web`, `python-release` |
+| QA | `python-testing` | `python-verify`, `python-web`, `python-release` |
+| Review | `python-standards` | `python-release` |
 
-The scaffold owns three managed files at `stack.root`: `CODING_STANDARDS.md`, `scripts/check.sh` and
-`scripts/size_check.py`. Onboarding materializes them with `python-scaffold --gate-only` (no second app
-skeleton) and writes `[tool.pack-python]` once; drift is `scaffold.py --check`, not an edit in place.
+The scaffold owns the managed files at `stack.root`: `CODING_STANDARDS.md`, `scripts/check.sh`,
+`scripts/size_check.py`, `.github/workflows/ci.yml`, `.github/dependabot.yml`, `scripts/audit.sh` and
+`scripts/release.sh`, plus the one-shot MIT `LICENSE`. Onboarding materializes them with
+`python-scaffold --gate-only` and `--delivery-only` (no second app skeleton) and writes
+`[tool.pack-python]` once; drift is `scaffold.py --check`, not an edit in place.
 A card may still name the profile explicitly:
 
 ```md

@@ -16,11 +16,11 @@ SPAN = re.compile(r'<span data-sb-version(="v")?>[^<]*</span>')
 
 def main(argv):
     if len(argv) != 3:
-        print("usage: stamp_version.py <site-dir> <MAJOR.MINOR.PATCH>", file=sys.stderr)
+        print("usage: stamp_version.py <site-dir> <MAJOR.MINOR.PATCH[-omp.N]>", file=sys.stderr)
         return 64
     site, version = Path(argv[1]), argv[2]
-    if not re.fullmatch(r"\d+\.\d+\.\d+", version):
-        print(f"version must be MAJOR.MINOR.PATCH (got: {version!r})", file=sys.stderr)
+    if not re.fullmatch(r"\d+\.\d+\.\d+(?:-omp\.\d+)?", version):
+        print(f"version must be MAJOR.MINOR.PATCH or MAJOR.MINOR.PATCH-omp.N (got: {version!r})", file=sys.stderr)
         return 64
     stamped = 0
     for page in sorted(site.rglob("*.html")):

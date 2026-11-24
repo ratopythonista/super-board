@@ -27,8 +27,8 @@ a selected chain can be runnable while the setup union is incomplete.
 `stack.name` in the active config (`--stack python` overrides) selects the Pack
 Python, never a label: Build requires `python-standards` and `python-testing`,
 QA requires `python-testing`, Review requires `python-standards`;
-`python-scaffold`, `python-verify` and `python-web` are conditional. The setup
-union adds all five when the stack is Python, and `vitest` /
+`python-scaffold`, `python-verify`, `python-web` and `python-release` are
+conditional. The setup union adds all six when the stack is Python, and `vitest` /
 `playwright-best-practices` stay skipped. An unknown stack exits 64.
 
 Claude sees project/user `.claude/skills` and enabled, scoped plugin records.

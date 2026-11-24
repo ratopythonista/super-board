@@ -52,7 +52,8 @@ class Readiness(unittest.TestCase):
         (base / 'active').write_text(name + '\n')
 
     def python(self):
-        for name in ['python-standards', 'python-scaffold', 'python-verify', 'python-testing', 'python-web']:
+        for name in ['python-standards', 'python-scaffold', 'python-verify', 'python-testing', 'python-web',
+                     'python-release']:
             self.put(name)
 
     def run_profile(self, extra=(), host='claude', expected=0):
@@ -381,6 +382,7 @@ class Readiness(unittest.TestCase):
         self.assertEqual(by[('build', 'python-web')]['status'], 'skipped')
         self.assertEqual(by[('qa', 'python-testing')]['requirement'], 'required')
         self.assertEqual(by[('review', 'python-standards')]['requirement'], 'required')
+        self.assertEqual(by[('review', 'python-release')]['requirement'], 'conditional')
         self.assertNotIn(('review', 'python-testing'), by)
         self.assertIn('stack: python', by[('build', 'python-standards')]['source'])
 
@@ -398,8 +400,8 @@ class Readiness(unittest.TestCase):
         self.config({'name': 'python', 'profile': 'web', 'root': 'python'})
         missing = [e['name'] for e in self.run_profile(expected=10)['entries']
                    if e['lane'] == 'setup' and e['status'] == 'missing']
-        self.assertEqual(sorted(missing), ['python-scaffold', 'python-standards', 'python-testing',
-                                           'python-verify', 'python-web'])
+        self.assertEqual(sorted(missing), ['python-release', 'python-scaffold', 'python-standards',
+                                           'python-testing', 'python-verify', 'python-web'])
         self.python()
         self.assertTrue(self.run_profile()['ready'])
         self.assertTrue(self.run_profile(['--stack', 'python'])['ready'])

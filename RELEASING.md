@@ -8,6 +8,8 @@ No release is created on pull requests or ordinary branch pushes.
 1. Update `VERSION` and `RELEASE-NOTES.md` in a reviewed commit.
 2. Run `bash tests/run-safety.sh` locally and merge the commit after CI passes.
 3. Tag that exact commit with `vMAJOR.MINOR.PATCH`, matching `VERSION`, and push the tag.
+   This fork also accepts `vMAJOR.MINOR.PATCH-omp.N` (for example `v3.5.1-omp.1`): `VERSION` carries the
+   same suffix, and the suffix keeps the tag from colliding with an upstream version.
 4. Open the **release** Actions run. Only its **publish** job creates the GitHub release.
 
 The release run checks the tag event's commit, not the current tip of `main`. Publication

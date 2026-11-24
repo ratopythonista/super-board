@@ -35,8 +35,9 @@ with two goals:
 1. **OMP as an execution host.** Lanes run as headless `omp -p` instead of Claude's Workflow tool: host detection,
    model roles, per-lane cost/time caps and a guard extension.
 2. **Python project structures.** The Pack Python from [`ratopythonista/skills`](https://github.com/ratopythonista/skills):
-   five portable skills (`python-standards`, `python-scaffold`, `python-verify`, `python-testing`, `python-web`),
-   a managed `CODING_STANDARDS.md` and `scripts/check.sh`, and the Django 6.1 + HTMX web profile.
+   six portable skills (`python-standards`, `python-scaffold`, `python-verify`, `python-testing`, `python-web`,
+   `python-release`), a managed `CODING_STANDARDS.md`, `scripts/check.sh`, the CI/audit/release files and the
+   Django 6.1 + HTMX web profile.
 
 | Read | What it covers |
 |---|---|

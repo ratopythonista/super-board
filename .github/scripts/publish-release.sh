@@ -4,7 +4,10 @@ set -euo pipefail
 TAG=${1:?release tag required}
 EXPECTED_SHA=${2:?tested commit required}
 fail() { echo "Release refused: $1" >&2; exit 1; }
-[[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail 'tag must be vMAJOR.MINOR.PATCH'
+# The fork publishes `-omp.N` builds of its own release line; the suffix keeps the
+# tag from colliding with an upstream version. Upstream tags stay vMAJOR.MINOR.PATCH.
+[[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-omp\.[0-9]+)?$ ]] \
+  || fail 'tag must be vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-omp.N'
 [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || fail 'expected a full tested commit SHA'
 [ "$(git rev-parse HEAD)" = "$EXPECTED_SHA" ] || fail 'checkout differs from tested commit'
 [ "$TAG" = "v$(cat VERSION)" ] || fail 'tag differs from VERSION'

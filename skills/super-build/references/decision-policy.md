@@ -42,6 +42,7 @@ column is the skill to invoke.
 | Generate or regenerate a Python app or its managed gate | `python-scaffold` |
 | Python gate, drift and coverage | `python-verify` |
 | Python web profile: Django, HTMX, Tailwind, Granian | `python-web` |
+| Cut a Python release, wire CI, audit or secret scan | `python-release` |
 
 The TS/JS mechanics and the Pack Python rows answer the same intents in different stacks; the config's
 `stack.name` picks the set (see "Python stack" below).
@@ -145,9 +146,9 @@ for every card:
 
 | Lane | Mandatory | Conditional, rechecked before use |
 | --- | --- | --- |
-| Build | `python-standards`, `python-testing` | `python-scaffold` (new repo, regeneration, drift), `python-verify` (gate/`check.sh`), `python-web` (web profile) |
-| QA | `python-testing` | `python-verify`, `python-web` |
-| Review | `python-standards` | — |
+| Build | `python-standards`, `python-testing` | `python-scaffold` (new repo, regeneration, drift), `python-verify` (gate/`check.sh`), `python-web` (web profile), `python-release` (CI, release, audit, secrets) |
+| QA | `python-testing` | `python-verify`, `python-web`, `python-release` |
+| Review | `python-standards` | `python-release` |
 
 The label row still picks the intent (`bug`, `feature`, `docs`, …). The stack picks the vocabulary, so the
 two compose; `Skills:` replaces the label row but never removes the mandatory Python rows. Read
