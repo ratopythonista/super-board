@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   checks:
-    uses: ./.github/workflows/cross-platform.yml
+    uses: ./.github/workflows/release-checks.yml
 
   publish:
     needs: checks
