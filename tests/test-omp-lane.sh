@@ -95,7 +95,14 @@ last | jq -e '.config | contains("modelRoles:") and contains("hard: \"fake/hard\
   || fail 'the overlay carries modelRoles and retry fallback chains'
 last | jq -r '.config' > "$T/overlay.yml"
 overlay_chains '{"easy":["fake/easy-2"],"review":[],"task":[]}' 'lane overlay'
-last | jq -r '.args | map(tostring) | join(" ")' | grep -q -- '--max-cost 0.75 --max-time 30m' || fail 'review caps must be passed'
+last | jq -c '.args' > "$T/args.json"
+python3 - "$T/args.json" <<'PY'
+import json, sys
+args = json.loads(open(sys.argv[1]).read())
+pairs = list(zip(args, args[1:]))
+if ('--max-cost', '0.75') not in pairs or ('--max-time', '30m') not in pairs:
+    raise SystemExit(f'review caps must be passed: {args}')
+PY
 last | jq -r '.args | map(tostring) | join(" ")' | grep -q -- '--session-dir' || fail 'sessions need a private dir'
 # No configured chains still parse as an object, never null.
 jq 'del(.omp.retry)' "$T/config.json" > "$T/config-no-retry.json"

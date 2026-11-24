@@ -221,7 +221,7 @@ RC=0; SB_CODEX_TEST_STATUS=halted SB_CODEX_TEST_DETAIL='verification-readiness: 
 [ -f .claude/super-board/inflight/1 ] || fail 'structured readiness halt preserves lane state'
 rm .claude/super-board/inflight/1
 
-# Two card chains run together, but a cap of 1 above was serial.
+# Review lanes serialize even with max_workers=2: one review owns the merge gate.
 echo '{"max_workers":2,"verify_commands":["git diff --check"]}' > "$T/config.json"
 CARDS='[{"number":1,"status":"Review"},{"number":2,"status":"Review"}]'
 : > "$SB_CODEX_TEST_LOG"
@@ -229,7 +229,7 @@ SB_CODEX_TEST_DELAY=1 wave --codex >"$T/out"
 python3 - "$SB_CODEX_TEST_LOG" <<'PY'
 import json, pathlib, sys
 calls = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text().splitlines()]
-assert len(calls) == 2 and max(call['active'] for call in calls) == 2
+assert len(calls) == 2 and max(call['active'] for call in calls) == 1, calls
 PY
 
 # If the numeric lock cannot be written, startup fails as a card result and
