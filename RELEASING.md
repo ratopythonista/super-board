@@ -1,8 +1,10 @@
 # Releasing super-board
 
-Push a version tag to run the release workflow. GitHub creates the release only after
-all safety suites pass on Linux and macOS, and the status-reader checks pass on Windows,
-Linux and macOS. Failed, cancelled or skipped checks prevent the publish job from running.
+Push a version tag to run the release workflow. GitHub creates the release only after the
+Ubuntu gate (`release-checks.yml`) passes: the status-reader checks on 3.9/3.10/3.12 and
+the full safety suite on 3.9/3.12. Every PR and `main` push still runs the full
+cross-platform matrix (macOS included); macOS arm64 queue cancellations must not block a
+release. Failed, cancelled or skipped checks prevent the publish job from running.
 No release is created on pull requests or ordinary branch pushes.
 
 1. Update `VERSION`, `skills/super-board/VERSION` and `RELEASE-NOTES.md` in a reviewed commit.
@@ -10,7 +12,7 @@ No release is created on pull requests or ordinary branch pushes.
    `safety (ubuntu-24.04 / py3.12)` and `smoke (ubuntu-24.04 / py3.12)`, so a direct push to `main` is
    refused; merge after both pass.
 3. Tag that exact commit with `vMAJOR.MINOR.PATCH`, matching `VERSION`, and push the tag.
-   This fork also accepts `vMAJOR.MINOR.PATCH-omp.N` (for example `v3.5.1-omp.1`): `VERSION` carries the
+   This fork also accepts `vMAJOR.MINOR.PATCH-omp.N` (for example `v3.5.1-omp.2`): `VERSION` carries the
    same suffix, and the suffix keeps the tag from colliding with an upstream version.
 4. Open the **release** Actions run. Only its **publish** job creates the GitHub release.
 

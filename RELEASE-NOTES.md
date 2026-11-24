@@ -1,6 +1,6 @@
 # Release notes
 
-## v3.5.1-omp.1 — 2026-11-24
+## v3.5.1-omp.2 — 2026-11-24
 
 Two installer fixes and the Pack Python delivery path (#126, #136).
 
@@ -10,6 +10,7 @@ Two installer fixes and the Pack Python delivery path (#126, #136).
   from the shell call instead of continuing with an empty result (`f83751f`).
 - ✨ **Fork tags may carry `-omp.N`.** `publish-release.sh` accepts `vX.Y.Z-omp.N` when `VERSION` carries the
   same suffix, so a fork build becomes a GitHub Release instead of a tag that only works with `--ref`.
+- ⚠️ **`v3.5.1-omp.1` has no release.** Its run hit the macOS arm64 queue and cancelled the smoke jobs; `v3.5.1-omp.2` is the published build. The release gate now runs the Ubuntu subset (`release-checks.yml`); PRs and `main` keep the full cross-platform matrix.
 - 🔧 **CI pinned to `ubuntu-24.04`.** `ubuntu-latest` moved to 26.04 and dropped Python 3.9; the matrix keeps 3.9/3.12 coverage, and the `main required checks` ruleset names the new contexts.
 - ✨ **Pack Python 6/6: `python-release`.** The delivery path is now part of the pack: a managed `ci.yml`
   (`gate`, `audit`, `secrets`), weekly Dependabot for `uv` and Actions, `scripts/audit.sh` with
@@ -19,7 +20,7 @@ Two installer fixes and the Pack Python delivery path (#126, #136).
 - 📝 **Onboarding installs six skills** and stages gate and delivery in two passes; `python-release` is
   conditional in Build, QA and Review, never mandatory.
 - ⚠️ **The old tag stays as is.** `v3.5.0-omp.1` has no GitHub Release and does not contain either fix;
-  install it only with an explicit `--ref`, or move to `v3.5.1-omp.1`.
+  install it only with an explicit `--ref`, or move to `v3.5.1-omp.2`.
 
 ## v3.5.0 — 2026-11-23
 

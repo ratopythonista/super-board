@@ -24,7 +24,7 @@ Nothing here is upstream-specific: the pack is MIT, the fork only adds the OMP b
 ```bash
 cd /path/to/project
 curl -fsSL https://raw.githubusercontent.com/ratopythonista/super-board/main/get.sh \
-  | SUPER_BOARD_REPO=ratopythonista/super-board bash -s -- --ref v3.5.1-omp.1 --hosts=omp
+  | SUPER_BOARD_REPO=ratopythonista/super-board bash -s -- --ref v3.5.1-omp.2 --hosts=omp
 ```
 
 - `SUPER_BOARD_REPO` makes `get.sh` fetch the fork instead of `EricTechPro/super-board`. It must reach

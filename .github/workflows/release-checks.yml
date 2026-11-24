@@ -1,0 +1,84 @@
+name: release-checks
+
+# The release gate. It runs the Ubuntu subset of cross-platform.yml, because macOS
+# arm64 runners are queue-bound and cancel long-queued release jobs. Every PR and
+# main push still runs the full cross-platform matrix, so macOS and Windows coverage
+# is not lost; the tagged commit only needs a deterministic gate before publishing.
+permissions:
+  contents: read
+
+on:
+  workflow_call:
+
+jobs:
+  smoke:
+    name: smoke (ubuntu-24.04 / py${{ matrix.python }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.10", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: compile super-board-status
+        run: python -m py_compile scripts/super-board-status.py
+
+      - name: status — no-config path exits 64
+        shell: bash
+        run: |
+          set +e
+          python scripts/super-board-status.py
+          ec=$?
+          set -e
+          if [ "$ec" -ne 64 ]; then
+            echo "::error::Expected exit 64 (no config), got $ec"
+            exit 1
+          fi
+          echo "OK: super-board-status.py exited 64 as documented"
+
+      - name: status — parser fixture tests
+        run: python tests/test_status_parse.py
+
+  safety:
+    name: safety (ubuntu-24.04 / py${{ matrix.python }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install the YAML test parser
+        run: python -m pip install --disable-pip-version-check pyyaml
+      - name: Run every offline safety suite
+        env:
+          SB_RUNTIME_TEST_ARTIFACTS: ${{ runner.temp }}/runtime-test-evidence
+        run: bash tests/run-safety.sh
+      - name: Keep runtime test evidence on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-evidence-ubuntu-24.04-py${{ matrix.python }}
+          path: ${{ runner.temp }}/runtime-test-evidence
+          if-no-files-found: ignore
+          retention-days: 7

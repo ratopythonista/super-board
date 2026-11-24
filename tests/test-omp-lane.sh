@@ -340,7 +340,7 @@ rm -f .claude/super-board/github-halt.json
 jq '.max_workers = 2' "$T/config.json" > "$T/config3.json"
 CARDS='[{"number":1,"status":"QA"},{"number":2,"status":"QA"}]'
 : > "$SB_OMP_TEST_LOG"
-SB_OMP_TEST_DELAY=3 bash "$KIT/scripts/super-board-omp-wave.sh" --config "$T/config3.json" --cards "$CARDS" --omp >"$T/out"
+SB_OMP_TEST_DELAY=10 bash "$KIT/scripts/super-board-omp-wave.sh" --config "$T/config3.json" --cards "$CARDS" --omp >"$T/out"
 jq -s -e 'map(.active) | max == 2' "$SB_OMP_TEST_LOG" >/dev/null || fail 'max_workers=2 must run QA lanes together'
 PARALLEL_LANES="docs/super-board/runs/$(date +%F)-config3-omp/lanes.jsonl"
 jq -s -e 'length >= 2 and all(.[]; has("card") and has("lane") and has("cost"))' "$PARALLEL_LANES" >/dev/null \

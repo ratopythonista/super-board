@@ -82,4 +82,9 @@ refused 'v3.0.2-omp' "$STUB_SHA"
 refused 'v3.0.2-omp.x' "$STUB_SHA"
 refused 'v3.0.2-rc.1' "$STUB_SHA"
 refused 'v3.0.2-omp.2' "$STUB_SHA"
+# The release gate is the Ubuntu subset; PR/main keep the full matrix.
+grep -q 'uses: ./\.github/workflows/release-checks.yml' "$PACK/.github/workflows/release.yml"   || fail 'release.yml must call release-checks.yml'
+grep -q 'bash tests/run-safety.sh' "$PACK/.github/workflows/release-checks.yml"   || fail 'release-checks.yml must run the safety suite'
+grep -q 'python tests/test_status_parse.py' "$PACK/.github/workflows/release-checks.yml"   || fail 'release-checks.yml must run the status parser tests'
+grep -q 'macos-latest' "$PACK/.github/workflows/cross-platform.yml"   || fail 'cross-platform.yml must keep macOS coverage'
 echo 'PASS: test-release.sh (matching tags, suffix, moved/missing tags, checkout, version, arguments, failure)'
