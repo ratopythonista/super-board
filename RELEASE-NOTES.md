@@ -10,6 +10,7 @@ Two installer fixes and the Pack Python delivery path (#126, #136).
   from the shell call instead of continuing with an empty result (`f83751f`).
 - ✨ **Fork tags may carry `-omp.N`.** `publish-release.sh` accepts `vX.Y.Z-omp.N` when `VERSION` carries the
   same suffix, so a fork build becomes a GitHub Release instead of a tag that only works with `--ref`.
+- 🔧 **CI pinned to `ubuntu-24.04`.** `ubuntu-latest` moved to 26.04 and dropped Python 3.9; the matrix keeps 3.9/3.12 coverage, and the `main required checks` ruleset names the new contexts.
 - ✨ **Pack Python 6/6: `python-release`.** The delivery path is now part of the pack: a managed `ci.yml`
   (`gate`, `audit`, `secrets`), weekly Dependabot for `uv` and Actions, `scripts/audit.sh` with
   `.security/audit-ignores`, `scripts/release.sh` (check, bump, Keep a Changelog, annotated tag, GitHub
