@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import unittest
@@ -183,6 +184,25 @@ sys.exit(r.get('rc', 0))
                 self.assertEqual(self.log.read_text(), '3')
                 self.assertIn('Valid form: --kind checks -- ', r.stderr)
                 self.assertFalse(self.halt.exists())
+
+    def test_documented_head_form_is_a_valid_jq_program(self):
+        # 2026-11-26: a lane copied '\(.headRefName) \(.headRefOid)' without the
+        # surrounding quotes; gh's jq rejected it and the read halted the run
+        # (little-cats #39, 3 attempts). The example must parse as written.
+        plants = [HELPER.read_text(encoding='utf-8'),
+                  (ROOT / 'workflows' / 'super-board-wave.js').read_text(encoding='utf-8')]
+        programs = []
+        for text in plants:
+            for program in re.findall(r"--jq \\?'([^']+)'", text):
+                program = program.rstrip('\\')
+                if 'headRefName' in program and 'headRefOid' in program:
+                    programs.append(program)
+        self.assertEqual(len(programs), 2, f'expected one head example per plant, found {programs}')
+        for program in programs:
+            run = subprocess.run(['jq', '-r', program], text=True, capture_output=True,
+                                 input=json.dumps({'headRefName': 'issue-1', 'headRefOid': 'a' * 40}))
+            self.assertEqual(run.returncode, 0, f'{program!r} is not valid jq: {run.stderr}')
+            self.assertEqual(run.stdout.strip(), 'issue-1 ' + 'a' * 40)
 
     def test_incomplete_dependency_pages_are_not_a_graph(self):
         page = {'data': {'repository': {'issues': {
