@@ -46,7 +46,7 @@ const READ_SHAPES = [
   `- issue title+body: --kind issue -- issue view <N> --json number,title,body`,
   `- issue comments: --kind comments -- api repos/{owner}/{repo}/issues/<N>/comments --paginate --slurp (zero comments = [[]])`,
   `- other JSON, incl. maybe-empty lists: --kind json -- <gh args> (no --jq that prints a plain string)`,
-  `- PR branch+head: --kind head -- pr view <N> --json headRefName,headRefOid --jq '"\\(.headRefName) \\(.headRefOid)"'`,
+  `- PR branch+head: --kind head -- pr view <N> --json headRefName,headRefOid --jq '.headRefName + " " + .headRefOid'`,
   `- PR body+head: --kind body -- pr view <N> --json body,headRefOid`,
   `- PR metadata: --kind metadata -- pr view <N> --json files,labels,body,additions,deletions,changedFiles`,
   `- PR CI checks: --kind checks -- pr view <N> --json statusCheckRollup --jq .statusCheckRollup ([] = no checks configured = green)`,

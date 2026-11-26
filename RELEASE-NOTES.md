@@ -1,5 +1,22 @@
 # Release notes
 
+## v3.5.1-omp.3 — 2026-11-26
+
+Factory fixes from the little-cats run (#6, #7).
+
+- 🐛 **A review lane no longer dies waiting for its truth passes.** The OMP lane now passes `--wait-async`:
+  print mode waits for the run's background `task` jobs and wakes the session with each result instead of
+  exiting on the yield. Four review lanes had exited `0` with "holding" prose and no result (#7).
+- 🐛 **The head read example is valid jq.** `--kind head` documented `\(.headRefName) \(.headRefOid)`, which is
+  invalid outside a string literal; a lane copied it without the quotes and halted a run. It now uses
+  `.headRefName + " " + .headRefOid` in the helper's `FORMS` and the wave prompt, with a test that runs it.
+- 🐛 **QA evidence provenance is a rule.** `Head under test:` names the commit that contains the code *and* the
+  tests; a docs-only claim needs `git show --stat`; a wrong report is edited, never explained away in a later
+  round (#6).
+- 🐛 **Superseded QA reports stop looping a card.** The reviewer closes an evidence finding once the stale text
+  is corrected or the report is annotated `Superseded by v<N>`; run-workflow, super-review, the lane prompt and
+  the writing standard all carry the rule (#6).
+
 ## v3.5.1-omp.2 — 2026-11-24
 
 Two installer fixes and the Pack Python delivery path (#126, #136).

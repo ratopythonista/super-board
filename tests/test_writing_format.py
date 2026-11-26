@@ -254,6 +254,21 @@ def test_status_alerts():
         assert alert in STANDARD, f"writing-standard.md lacks {alert}"
 
 
+def test_qa_evidence_provenance_is_pinned_everywhere_a_lane_reads_it():
+    """#6: an unverified 'Head under test' + 'docs-only' claim looped a card for four waves."""
+    qa = (ROOT / "skills" / "super-qa" / "SKILL.md").read_text(encoding="utf-8")
+    for phrase in ("**Name the tested head honestly.**", "git show --stat", "**Fix the report that is wrong.**"):
+        assert phrase in qa, f"super-qa/SKILL.md lacks {phrase!r}"
+    for phrase in ("### QA evidence provenance", "Head under test: <sha>", "Superseded by v<N>"):
+        assert phrase in STANDARD, f"writing-standard.md lacks {phrase!r}"
+    review = (ROOT / "skills" / "super-review" / "SKILL.md").read_text(encoding="utf-8")
+    workflow = (REF / "run-workflow.md").read_text(encoding="utf-8")
+    lane = (ROOT / "scripts" / "super-board-lane.sh").read_text(encoding="utf-8")
+    for name, text in (("super-review/SKILL.md", review), ("run-workflow.md", workflow),
+                       ("super-board-lane.sh", lane)):
+        assert "Superseded by v<N>" in text, f"{name} lacks the superseded-report rule"
+
+
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
 
 if __name__ == "__main__":
