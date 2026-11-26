@@ -394,6 +394,16 @@ Next: builder
 Reviewer status words: `merge-ready` · `bounced` · `blocked` · `human-gated` · `unverified` ·
 `merged`. Classes: Gap · Bug · Verification miss · Scope drift · Over-engineering.
 
+### QA evidence provenance
+
+A QA report names the commit that contains both the code and the tests it cites:
+`Head under test: <sha>`. If the evidence commit also changes code or tests, it is the tested
+head. A docs-only claim needs `git show --stat <sha>`; without it, leave the sentence out.
+Correcting an earlier report means editing that report in the same commit — a later report
+never makes an older false statement true. An older report is history once the newest report
+covers the same AC: annotate it `Superseded by v<N>`, and a finding closes unless the claim is
+still asserted somewhere in the current artifact.
+
 ## 5 · AGENTS.md section
 
 Tables plus CAPS rules (NEVER / DON'T / ALWAYS). No prose paragraphs. The managed block is

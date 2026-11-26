@@ -219,6 +219,10 @@ Outside super-board (no PR), `prior_report` is whatever earlier review the calle
 - `not fixed` — still true of the code. A resolved thread is not evidence, and neither is
   the builder's reply saying it was fixed; read the code.
 - `no longer applies` — the code it pointed at is gone, or the AC changed. Do not re-raise it.
+- **Superseded report** — a QA report from an earlier round is historical once a later report covers the
+  same AC. An evidence finding it carries closes when that text is corrected, or when the earlier report is
+  explicitly annotated `Superseded by v<N>`; a claim still asserted anywhere in the current artifact stays
+  open. Do not keep a card bouncing on a stale file that nobody will read again.
 
 Any `not fixed` (other than Over-engineering, which never bounces alone) → **bounce again**: set those rows to `❌ not fixed`, keeping their
 original ids and owners. Skip the fresh pass; it would review code that is about to change.
