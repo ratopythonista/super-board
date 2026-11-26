@@ -25,7 +25,7 @@ config, so a lane started from another host still answers for the host it is act
 ## The process
 
 ```
-omp -p --mode json
+omp -p --wait-async --mode json
   --tools read,bash,edit,write,grep,glob,web_search[,task]
   --config <run>/roles.yml --model @<role>
   --max-time <omp.limits.<lane>.max_time> --max-cost <omp.limits.<lane>.max_cost>
@@ -33,6 +33,9 @@ omp -p --mode json
 ```
 
 - `-p` is the print mode: the answer is the lane's result; there is no session to resume.
+- `--wait-async` is what keeps a Review lane alive: `task` truth passes run as background jobs, and
+  print mode otherwise exits the moment the parent yields, orphaning them. With the flag the session
+  is woken with each result and can write its result file. The cap still applies (`--max-time`).
 - `--mode json` streams NDJSON, so a lane that dies after printing still leaves its last assistant message; the
   wrapper falls back to it when the result file is unusable.
 - `--tools` is the minimum the lane needs. A card that asks for a tool the lane does not have fails there, on the

@@ -89,6 +89,10 @@ jq -e '.status == "advanced" and .column == "Done"' "$T/out" >/dev/null || fail 
 [ "$(last | jq -r '.env.CLAUDE_PROJECT_DIR')" = "$(pwd -P)" ] || fail 'CLAUDE_PROJECT_DIR must name the repo root'
 [ -n "$(last | jq -r '.env.SUPER_BOARD_LANE_MODEL_FILE')" ] || fail 'the model evidence file must be exported'
 last | jq -r '.prompt' | grep -q '@role · provider/model:thinking · <sha>' || fail 'the lane prompt must carry the PR history model contract'
+last | jq -r '.prompt' | grep -q 'print mode does not wake on a notification' || fail 'the lane prompt must name the print-mode turn semantics'
+last | jq -r '.prompt' | grep -q 'Never read `agent://` or `history://`' || fail 'the lane prompt must forbid polling subagents'
+last | jq -r '.prompt' | grep -q 'Superseded by v<N>' || fail 'the lane prompt must carry the superseded-report rule'
+last | jq -r '.args | map(tostring) | join(" ")' | grep -q -- '--wait-async' || fail 'review print mode must wait for background truth passes'
 grep -q -- '--no-extensions' "$SB_OMP_TEST_LOG" || fail 'user extensions must be disabled'
 grep -q -- '-e' "$SB_OMP_TEST_LOG" || fail 'the guard extension must be explicit'
 last | jq -e '.config | contains("modelRoles:") and contains("hard: \"fake/hard\"") and contains("review: []")' >/dev/null \
@@ -264,9 +268,13 @@ jq -s -e 'all(.lane == "grade")' "$SB_OMP_TEST_LOG" >/dev/null || { cat "$SB_OMP
 # A live in-flight lock halts that card; a stale PID is reclaimed.
 CARDS='[{"number":1,"status":"Review"}]'
 mkdir -p .claude/super-board/inflight
-printf 'PID=%s\nLANE=review\n' "$$" > .claude/super-board/inflight/1
+# A PID the Python liveness check can see: some sandboxes translate the ids
+# a shell child gets (`$$` and `$!`), so the sleeper is spawned by Python.
+LOCK_PID=$(python3 -c 'import subprocess; print(subprocess.Popen(["sleep", "300"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True).pid)')
+printf 'PID=%s\nLANE=review\n' "$LOCK_PID" > .claude/super-board/inflight/1
 RC=0; wave --omp >"$T/out" || RC=$?
 [ "$RC" -eq 79 ] && jq -e '.cards[0].detail | contains("in-flight lock")' "$T/out" >/dev/null || fail 'live lock must halt'
+kill "$LOCK_PID" 2>/dev/null || python3 -c "import os,sys; os.kill(int(sys.argv[1]), 15)" "$LOCK_PID"
 printf 'PID=999999999\nLANE=review\n' > .claude/super-board/inflight/1
 : > "$SB_OMP_TEST_LOG"
 wave --omp >"$T/out"

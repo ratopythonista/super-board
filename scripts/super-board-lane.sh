@@ -286,7 +286,7 @@ class Omp:
             raise ValueError(f'omp.modelRoles.{role} is required by --model {run["model"]}')
         run['session_dir'].mkdir(parents=True, exist_ok=True)
         tools = self.tools(run)
-        command = ['omp', '-p', '--mode', 'json', '--no-title', '--auto-approve',
+        command = ['omp', '-p', '--wait-async', '--mode', 'json', '--no-title', '--auto-approve',
                    '--tools', ','.join(tools), '--config', str(run['roles_path']),
                    '--model', run['model'], '--no-extensions',
                    '-e', str(self.guard_extension(run['root'])),
@@ -507,7 +507,8 @@ if backend.name == 'omp':
     adaptation = f'''OMP adaptation: this is a headless `omp -p` lane process. Never launch Claude subagents. Use the native `task` tool only for Review's truth-check: two read-only adversarial passes (code-grounder and historian), with the Tester's evidence and the raw diff; every other duty runs inline. The guard extension narrows each subagent to read/bash/grep/glob.
 Claim protocol: claim before work with `gh issue edit {card['number']} --add-assignee @me`; then `gh issue view {card['number']} --json assignees` must list exactly {identity}. A different assignee means another worker owns the card: return status=halted and preserve everything. Release only after the lane's final checklist passes.
 Worktree: create your own at `.claude/worktrees/issue-{card['number']}-{args.lane}` and work only there; never edit the main checkout.
-Merge vs nit: a finding is open only when the current diff, PR body or QA evidence still contains it. A historical comment that cites an older line, already corrected in the artifact, is `no longer applies`; note it and merge. A finding still present in the current artifact bounces, whatever the comment's age.
+Merge vs nit: a finding is open only when the current diff, PR body or QA evidence still contains it. A historical comment that cites an older line, already corrected in the artifact, is `no longer applies`; note it and merge. An older QA report is superseded by the newest report for the same AC: its finding closes when the stale text is corrected or the file is annotated `Superseded by v<N>`, and stays open only while the claim is still asserted in the current artifact. A finding still present in the current artifact bounces, whatever the comment's age.
+Turn semantics: `task` runs inside this turn; its result arrives as the tool result. Never read `agent://` or `history://`, never `bash sleep` to wait for a subagent, and never send a message without a tool call or end the turn while a truth pass is pending — print mode does not wake on a notification. Ending the turn with prose is a failed lane.
 Evidence: read `$SUPER_BOARD_LANE_MODEL_FILE` (JSON role/provider/model/thinking written by the guard extension at session start) and use that resolved pair in the PR history line as `@role · provider/model:thinking · <sha>`.
 Final lane result: write the JSON object (no prose) to {output_path} and also make it your last message.'''
 else:
