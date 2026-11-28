@@ -8,9 +8,9 @@ release. Failed, cancelled or skipped checks prevent the publish job from runnin
 No release is created on pull requests or ordinary branch pushes.
 
 1. Update `VERSION`, `skills/super-board/VERSION` and `RELEASE-NOTES.md` in a reviewed commit.
-2. Run `bash tests/run-safety.sh` locally and open a PR. The `main required checks` ruleset requires
-   `safety (ubuntu-24.04 / py3.12)` and `smoke (ubuntu-24.04 / py3.12)`, so a direct push to `main` is
-   refused; merge after both pass.
+2. Run `bash tests/run-safety.sh` locally and open a PR. GitHub has Actions disabled on this public
+   fork (the `main required checks` ruleset was removed on 2026-11-28 for that reason), so the local
+   suite is the gate; merge after it is green.
 3. Tag that exact commit with `vMAJOR.MINOR.PATCH`, matching `VERSION`, and push the tag.
    This fork also accepts `vMAJOR.MINOR.PATCH-omp.N` (for example `v3.5.1-omp.2`): `VERSION` carries the
    same suffix, and the suffix keeps the tag from colliding with an upstream version.
@@ -54,8 +54,12 @@ this code.
 
 Before treating this as an enforced release policy:
 
-- Require the checks listed below for `main` through a branch ruleset. Require review
-  of changes to the workflows and release scripts.
+- CI is local-only while GitHub keeps Actions disabled on this public fork
+  (`HTTP 422 Actions has been disabled for this repository`; settings still say enabled).
+  Once Actions runs again, recreate the removed ruleset from
+  `docs/rulesets/main-required-checks.json`
+  (`gh api -X POST repos/<owner>/<repo>/rulesets --input docs/rulesets/main-required-checks.json`),
+  then require review of changes to the workflows and release scripts.
 - Add a tag ruleset for `v*`. Require the same checks before tag creation (do not enable
   the creation exemption), and bind their source to GitHub Actions. Confirm that GitHub
   offers this rule for the repository before relying on it. The checks must already be
