@@ -255,6 +255,95 @@ dispatch_lane build 7
         self.assertEqual(result.returncode, 79)
         self.assertEqual(self.log.read_text(), '3')
 
+    def test_metadata_read_completes_a_truncated_file_list(self):
+        # `gh pr view --json files` stops at 100; the merge gate refuses a PR whose
+        # list is shorter than changedFiles, so one paginated read fills the rest.
+        first = [{'path': f'f{i}.py'} for i in range(100)]
+        view = {'files': first, 'labels': [], 'body': '', 'additions': 1, 'deletions': 0,
+                'changedFiles': 126}
+        pages = [[{'filename': f'f{i}.py', 'additions': 1, 'deletions': 0} for i in range(100)],
+                 [{'filename': f'f{i}.py', 'additions': 1, 'deletions': 0} for i in range(100, 126)]]
+        r = self.read([{'out': json.dumps(view)}, {'out': json.dumps(pages)}], 'metadata',
+                      ['pr', 'view', '55', '--repo', 'o/r', '--json',
+                       'labels,files,additions,deletions,changedFiles,body'])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        files = json.loads(r.stdout)['files']
+        self.assertEqual(len(files), 126)
+        self.assertEqual(files[-1]['path'], 'f125.py')
+        self.assertEqual(self.log.read_text(), '2')
+        self.assertFalse(self.halt.exists())
+
+    def test_complete_metadata_list_needs_no_extra_read(self):
+        files = [{'path': 'a.py'}, {'path': 'b.py'}]
+        view = {'files': files, 'labels': [], 'body': '', 'additions': 1, 'deletions': 0,
+                'changedFiles': 2}
+        r = self.read([{'out': json.dumps(view)}], 'metadata',
+                      ['pr', 'view', '7', '--repo', 'o/r', '--json',
+                       'labels,files,additions,deletions,changedFiles,body'])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(len(json.loads(r.stdout)['files']), 2)
+        self.assertEqual(self.log.read_text(), '1')
+
+    def test_object_and_array_shape_mismatches_fail_that_call(self):
+        # 2026-11-28: GraphQL read with --kind array (object payload) halted a wave.
+        for out, kind in [('{"data":{"repository":{}}}', 'array'), ('[]', 'object')]:
+            with self.subTest(out=out):
+                self.halt.unlink(missing_ok=True)
+                self.log.unlink(missing_ok=True)
+                r = self.read([{'out': out}], kind)
+                self.assertEqual(r.returncode, 64, r.stderr)
+                self.assertEqual(r.stdout, '')
+                self.assertIn(f'Valid form: --kind {kind} -- ', r.stderr)
+                self.assertFalse(self.halt.exists())
+        self.env['SB_GITHUB_READ_STRICT'] = '1'
+        self.assertEqual(self.read([{'out': '[]'}], 'object').returncode, 79)
+
+    def test_slurp_with_jq_is_the_callers_usage_error(self):
+        # 2026-11-28: gh rejects --slurp with --jq; the double space after
+        # "Usage:" defeated the old detector and the read halted the wave.
+        r = self.read([{'rc': 1, 'err': 'the `--slurp` option is not supported with `--jq` or `--template`\n\n'
+                                        'Usage:  gh api <endpoint> [flags]'}], 'comments',
+                      ['api', 'repos/o/r/issues/63/comments', '--paginate', '--slurp', '--jq', 'x'])
+        self.assertEqual(r.returncode, 64, r.stderr)
+        self.assertEqual(self.log.read_text(), '1')
+        self.assertFalse(self.halt.exists())
+
+    def test_issue_number_shape_mismatch_fails_that_call(self):
+        # 2026-11-27: `--kind issue-number` fed full issue JSON halted the wave.
+        r = self.read([{'out': '{"number":28,"title":"t"}'}], 'issue-number',
+                      ['issue', 'view', '28', '--json', 'number,title,body'])
+        self.assertEqual(r.returncode, 64, r.stderr)
+        self.assertEqual(r.stdout, '')
+        self.assertIn('Valid form: --kind issue-number -- issue view <N> --json number --jq .number', r.stderr)
+        self.assertFalse(self.halt.exists())
+        self.assertEqual(self.read([{'out': '28\n'}], 'issue-number',
+                                   ['issue', 'view', '28', '--json', 'number', '--jq', '.number']).returncode, 0)
+
+    def test_missing_issue_number_in_a_pr_read_fails_that_call_only(self):
+        # `gh pr view 41` where 41 is an issue prints "Could not resolve"; one lane
+        # doing that must not halt the whole board run.
+        r = self.read([{'rc': 1, 'err': 'Could not resolve to a PullRequest with the number of 41.'}],
+                      'json', ['pr', 'view', '41', '--json', 'number,title,body'])
+        self.assertEqual(r.returncode, 64, r.stderr)
+        self.assertEqual(r.stdout, '')
+        self.assertIn('no such issue/PR', r.stderr)
+        self.assertFalse(self.halt.exists())
+        self.assertEqual(self.log.read_text(), '1')
+
+    def test_strict_missing_issue_number_halts_before_retrying(self):
+        self.env['SB_GITHUB_READ_STRICT'] = '1'
+        r = self.read([{'rc': 1, 'err': 'Could not resolve to a PullRequest with the number of 41.'}],
+                      'json', ['pr', 'view', '41', '--json', 'number,title,body'])
+        self.assertEqual(r.returncode, 79)
+        self.assertEqual(self.log.read_text(), '1')
+        self.assertEqual(json.loads(self.halt.read_text())['attempts'], 1)
+
+    def test_unreadable_repository_still_halts(self):
+        r = self.read([{'rc': 1, 'err': "Could not resolve to a Repository with the name 'o/r'."}],
+                      'json', ['pr', 'view', '1'])
+        self.assertEqual(r.returncode, 79)
+        self.assertEqual(self.log.read_text(), '1')
+
     def test_diff_without_meta_fails_that_call_without_reading(self):
         r = self.read([{'out': 'diff --git a/a b/a\n'}], 'diff', ['pr', 'diff', '1'])
         self.assertEqual(r.returncode, 64, r.stderr)

@@ -35,8 +35,11 @@ class GitHubErrors(ValueError):
 # Valid read per --kind, quoted back when a payload fails its shape.
 FORMS = {
     'issue': 'issue view <N> --json number,title,body',
+    'issue-number': 'issue view <N> --json number --jq .number',
     'comments': 'api repos/{owner}/{repo}/issues/<N>/comments --paginate --slurp',
     'json': '<gh args> (JSON output; no --jq that prints a plain string)',
+    'object': '<gh args> (one JSON object)',
+    'array': '<gh args> (a JSON array; a GraphQL query returns an object, so use --kind json)',
     'head': 'pr view <N> --json headRefName,headRefOid --jq \'.headRefName + " " + .headRefOid\'',
     'body': 'pr view <N> --json body,headRefOid',
     'metadata': 'pr view <N> --json files,labels,body,additions,deletions,changedFiles',
@@ -121,6 +124,15 @@ def read_only(args):
     return True
 
 
+def missing_resource(text):
+    """A wrong Issue/PullRequest number is the caller's mistake, not an outage.
+
+    `gh` also prints "Could not resolve to a ..." for an unreadable repository, so
+    only a missing Issue/PullRequest number is demoted to a failed call.
+    """
+    return re.search(r'Could not resolve to a (?:PullRequest|Issue) with the number of', text, re.I) is not None
+
+
 def permanent_error(text):
     if re.search(r'rate limit|secondary rate', text, re.I):
         return False
@@ -132,8 +144,8 @@ def permanent_error(text):
 
 def usage_error(text):
     """The caller's command is malformed; retrying cannot fix it."""
-    return re.search(r'(?m)^\s*Usage: gh\b|--paginate`? required when passing|unknown (?:flag|shorthand flag)',
-                     text) is not None
+    return re.search(r'(?m)^\s*Usage:\s+gh\b|--paginate`? required when passing|'
+                     r'`?--slurp`? option is not supported|unknown (?:flag|shorthand flag)', text) is not None
 
 
 def require(condition, why):
@@ -329,6 +341,69 @@ def validate(text, kind, meta=None):
     return value
 
 
+def repo_from_args(args):
+    for i, arg in enumerate(args):
+        if arg in ('--repo', '-R') and i + 1 < len(args):
+            value = args[i + 1]
+        elif arg.startswith('--repo='):
+            value = arg[len('--repo='):]
+        else:
+            continue
+        return value if re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', value) else None
+    result = subprocess.run(['gh', 'repo', 'view', '--json', 'nameWithOwner'], capture_output=True, timeout=30)
+    if result.returncode:
+        return None
+    try:
+        value = json.loads(result.stdout.decode('utf-8', 'replace')).get('nameWithOwner')
+    except (ValueError, AttributeError):
+        return None
+    return value if isinstance(value, str) and re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', value) else None
+
+
+def complete_metadata(text, args):
+    """Fill in the file list `gh pr view --json files` truncates at 100.
+
+    The merge gate refuses a PR whose files list is shorter than changedFiles, so
+    without this pagination every PR touching more than 100 files halts at merge.
+    """
+    if args[:2] != ['pr', 'view'] or len(args) < 3:
+        return text
+    try:
+        value = json.loads(text)
+    except ValueError:
+        return text
+    if not isinstance(value, dict):
+        return text
+    files = value.get('files')
+    changed = value.get('changedFiles')
+    if not isinstance(files, list) or not isinstance(changed, int) or len(files) >= changed:
+        return text
+    number = args[2]
+    if not re.fullmatch(r'[1-9][0-9]*', number):
+        return text
+    repo = repo_from_args(args)
+    if not repo:
+        return text
+    result = subprocess.run(['gh', 'api', '--paginate', '--slurp', f'repos/{repo}/pulls/{number}/files'],
+                            capture_output=True, timeout=60)
+    if result.returncode:
+        return text
+    try:
+        pages = json.loads(result.stdout.decode('utf-8', 'replace'))
+    except ValueError:
+        return text
+    if not isinstance(pages, list):
+        return text
+    entries = [entry for page in pages if isinstance(page, list) for entry in page if isinstance(entry, dict)]
+    entries = [entry for entry in entries
+               if isinstance(entry.get('filename'), str) and entry['filename']]
+    if len(entries) != changed:
+        return text
+    value['files'] = [{'path': entry['filename'], 'additions': entry.get('additions', 0),
+                       'deletions': entry.get('deletions', 0)} for entry in entries]
+    return json.dumps(value)
+
+
 def read(args, kind='json', meta=None, recovering=False):
     if not read_only(args):
         raise ValueError('retry helper accepts read-only GitHub commands only')
@@ -367,6 +442,8 @@ def read(args, kind='json', meta=None, recovering=False):
                 result = subprocess.run(['gh', *effective], capture_output=True, timeout=30)
                 result.stdout = result.stdout.decode('utf-8', 'replace')
                 result.stderr = result.stderr.decode('utf-8', 'replace')
+            if not result.returncode and kind == 'metadata':
+                result.stdout = complete_metadata(result.stdout, effective)
             diagnostic = result.stderr
             if result.returncode:
                 diagnostic += result.stdout
@@ -383,6 +460,10 @@ def read(args, kind='json', meta=None, recovering=False):
                     hint = f' Valid form: --kind {kind} -- {form}' if form else ''
                     raise ValueError(f'{last}; this call failed, the run continues.{hint}')
                 halt('GitHub rejected a required read (malformed command); fix it before restarting', attempt, operation)
+            if missing_resource(diagnostic):
+                if os.environ.get('SB_GITHUB_READ_STRICT'):
+                    halt('GitHub has no such issue/PR for a required read; fix the read before restarting', attempt, operation)
+                raise ValueError('GitHub has no such issue/PR for this read; this call failed, the run continues')
             if permanent_error(diagnostic):
                 halt('GitHub rejected a required read (query, authentication, or permission error); fix it before restarting', attempt, operation)
             if result.returncode:
